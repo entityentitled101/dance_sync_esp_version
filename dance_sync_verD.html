@@ -896,7 +896,8 @@
       </div>
 
       <!-- waveform -->
-      <div style="margin:6px 14px 0;border:1px solid #1a1a1a;border-radius:4px;overflow:hidden;height:44px;background:#020202">
+      <div
+        style="margin:6px 14px 0;border:1px solid #1a1a1a;border-radius:4px;overflow:hidden;height:44px;background:#020202">
         <canvas id="waveform-cv" style="width:100%;height:44px;display:block"></canvas>
       </div>
 
@@ -1045,25 +1046,10 @@
       const chord = chords[chordIdx];
 
       if (curFingers === 0) {
-        // === CLASSICAL 一极简方案 ===
-        const dynamicVel = Math.max(0, curVelocity - 100);
-        if (dynamicVel > 5 && Math.random() > 0.25) {
-          const leapIdx = [0, 2, 4, 0, 2];
-          const pick = leapIdx[Math.floor(Math.random() * leapIdx.length)];
-          const baseNote = chord[pick % chord.length];
-          const vol = Math.min(0.9, 0.5 + dynamicVel / 300);
-          // 级别 1: 基础音区钢琴
-          leadSynth.triggerAttackRelease(baseNote, '8n', time, vol);
-          // 级别 2: 加入高八度的明亮钢琴音
-          if (curIntensity >= 1) {
-            const highNote = Tone.Frequency(baseNote).transpose(12).toNote();
-            leadSynth.triggerAttackRelease(highNote, '8n', time, vol * 0.6);
-          }
-        }
-        // 级别 3: 强拍底鼓 (非常明确, 每个强拍)
-        if (curIntensity >= 2 && isDown) {
-          kickSynth.triggerAttackRelease('C2', '8n', time, 0.7);
-        }
+        if (curEnergy > 5 && (isDown || curEnergy > 50)) leadSynth.triggerAttackRelease(chord[Math.floor(Math.random() * chord.length)], '16n', time);
+        if (curIntensity >= 1 && beat === 0 && isDown) droneSynth.frequency.rampTo(chord[0], .1);
+        if (curIntensity >= 2 && beat === 0 && isDown && curVelocity > 40) organSynth.triggerAttackRelease([chord[0], chord[4] || chord[1]], '4n', time, .8);
+        if (curIntensity >= 3 && isDown && curEnergy > 60) kickSynth.triggerAttackRelease('C2', '16n', time, .4);
       } else if (curFingers === 1) {
         if (curEnergy > 5) { if (isDown) kickSynth.triggerAttackRelease('C1', '8n', time, 0.9); else if (curEnergy > 80 && Math.random() > .6) kickSynth.triggerAttackRelease('C1', '16n', time, 0.8); }
         if (curIntensity >= 1 && curEnergy > 20 && Math.random() > .6) leadSynth.triggerAttackRelease(cyberScale[Math.floor(Math.random() * cyberScale.length)], '16n', time, .7);
@@ -1082,17 +1068,7 @@
       noiseGain.disconnect(); noiseGain.connect(mainGain); heliTremolo.wet.value = 0;
       if (id === 2) { sirenLFO.start(); noiseGain.disconnect(); noiseGain.connect(heliTremolo); heliTremolo.wet.value = 1; }
       curFingers = id;
-      if (id === 0) {
-        // === CLASSICAL 音色大整修 ===
-        // 钢琴：三角波 + 真实钢琴衰减包络 (attack端促、decay长、sustain极低)
-        leadSynth.set({ oscillator: { type: 'triangle' }, envelope: { attack: .005, decay: 1.5, sustain: .02, release: 2 } });
-        // 弦乐底座：用正弦波而不是锯齿波，用极低滤波器去掉刺耳谐波
-        droneSynth.type = 'sine'; droneSynth.spread = 20; droneSynth.count = 3;
-        droneSynth.frequency.value = chords[0][0];
-        droneFilter.type = 'lowpass'; droneFilter.frequency.value = 350;
-        // Organ 配置：用正弦波+短衰减 模拟竖琴/马林巴拨弦音（用于3级）
-        organSynth.set({ oscillator: { type: 'sine' }, envelope: { attack: .005, decay: .6, sustain: .01, release: .8 } });
-      }
+      if (id === 0) { leadSynth.set({ oscillator: { type: 'triangle' } }); droneSynth.type = 'sawtooth'; droneSynth.frequency.value = chords[0][0]; droneFilter.type = 'lowpass'; droneFilter.frequency.value = 1500; organSynth.set({ oscillator: { type: 'sawtooth' }, envelope: { attack: .01, decay: .3, sustain: .5 } }); }
       else if (id === 1) { leadSynth.set({ oscillator: { type: 'sawtooth' } }); droneSynth.type = 'square'; droneFilter.type = 'lowpass'; droneFilter.frequency.value = 400; }
       else { droneSynth.type = 'sine'; droneSynth.frequency.value = 'D1'; noiseSynth.type = 'brown'; organSynth.set({ oscillator: { type: 'fatcustom', count: 2, spread: 20 }, portamento: .1 }); }
       updateIntensity(0);
@@ -1111,32 +1087,10 @@
 
     function updateIntensity(lv) {
       curIntensity = lv; if (!audioReady) return;
-      const t = .8;
-      if (curFingers === 0) {
-        // === CLASSICAL 一极简层级 ===
-        // 1级: 钢琴 (lead=0.6)
-        // 2级: 钢琴 + 高八度明亮钢琴 (lead=0.6, 无额外增益)
-        // 3级: 钢琴 + 高八度 + 明确底鼓 (kick=0.5)
-        // 4级: 以上 + 大混响 (停留在大厅里)
-        leadGain.gain.rampTo(0.6, t);
-        droneGain.gain.rampTo(0, t);       // drone彻底不用
-        organGain.gain.rampTo(0, t);       // organ彻底不用
-        kickGain.gain.rampTo(lv >= 2 ? 0.5 : 0, t);
-        mainReverb.wet.rampTo(lv >= 3 ? 0.45 : 0, 2);
-      }
-      else if (curFingers === 1) {
-        kickGain.gain.rampTo(1.0, t);
-        leadGain.gain.rampTo(lv >= 1 ? .7 : 0, t);
-        droneGain.gain.rampTo(lv >= 2 ? .6 : 0, t);
-        noiseGain.gain.rampTo(lv >= 3 ? .2 : 0, t);
-        mainReverb.wet.rampTo(lv >= 3 ? 0.3 : 0, 2);
-      }
-      else {
-        droneGain.gain.rampTo(.6, t);
-        noiseGain.gain.rampTo(lv >= 1 ? .5 : 0, t);
-        organGain.gain.rampTo(lv >= 2 ? .4 : 0, t);
-        mainReverb.wet.rampTo(lv >= 3 ? 0.4 : 0, 2);
-      }
+      const t = .5; mainReverb.wet.rampTo(lv >= 3 ? .4 : 0, 2);
+      if (curFingers === 0) { leadGain.gain.rampTo(1, t); droneGain.gain.rampTo(lv >= 1 ? .4 : 0, t); organGain.gain.rampTo(lv >= 2 ? .5 : 0, t); }
+      else if (curFingers === 1) { kickGain.gain.rampTo(1.2, t); leadGain.gain.rampTo(lv >= 1 ? .7 : 0, t); droneGain.gain.rampTo(lv >= 2 ? .6 : 0, t); noiseGain.gain.rampTo(lv >= 3 ? .2 : 0, t); }
+      else { droneGain.gain.rampTo(.6, t); noiseGain.gain.rampTo(lv >= 1 ? .5 : 0, t); organGain.gain.rampTo(lv >= 2 ? .4 : 0, t); }
     }
 
     // ═══════════════════════════════════════════════════

@@ -1184,14 +1184,23 @@
             uniform float angle;
             varying vec2 vUv;
             void main() {
-              vec2 offset = amount * vec2(cos(angle), sin(angle));
-              vec4 cr = texture2D(tDiffuse, vUv + offset);
-              vec4 cga = texture2D(tDiffuse, vUv);
-              vec4 cb = texture2D(tDiffuse, vUv - offset);
-              // 减少绿色成分，增加赋予红蓝色散对比
-              vec3 finalColor = vec3(cr.r, cga.g * 0.5, cb.b);
-              finalColor += vec3(amount * 2.0);
-              gl_FragColor = vec4(finalColor, cga.a);
+              // 1. 径向衰减：中心几乎无色散，越靠边缘色散越强
+              float dist = distance(vUv, vec2(0.5));
+              vec2 offset = amount * (dist * 2.5) * vec2(cos(angle), sin(angle));
+              
+              // 2. 采样原始图像与偏移图像
+              vec4 base = texture2D(tDiffuse, vUv);
+              vec4 rSample = texture2D(tDiffuse, vUv + offset);
+              vec4 bSample = texture2D(tDiffuse, vUv - offset);
+              
+              // 3. 智能核心白光保护算法（使用 max 替换替换）
+              // 关键：绿色通道使用 bSample.g 避免过绿
+              vec3 finalColor = base.rgb;
+              finalColor.r = max(base.r, rSample.r * 0.85); 
+              finalColor.g = max(base.g, bSample.g * 0.85);
+              finalColor.b = max(base.b, bSample.b * 0.85);
+              
+              gl_FragColor = vec4(finalColor, base.a);
             }
           `
         };

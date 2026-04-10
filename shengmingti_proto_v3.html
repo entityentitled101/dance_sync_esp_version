@@ -1879,6 +1879,9 @@
       spiralFadingDuration: 5000,    // 回落等待时间：需要持续静止5秒
       spiralFadingStartTime: null,   // 回落计时开始时间
       spiralFadingTriggered: false,  // 回落已触发标志
+      // 章节初始化等待
+      chapterInitGracePeriod: 6000,  // 章节初始化等待期：6秒（切换章节后6秒内不能进入高潮）
+      chapterEnterTime: 0,           // 进入当前章节的时间
       // 章节切换时屏蔽副手数据
       subHandBlockDuration: 6000,    // 屏蔽副手数据时间：6秒
       subHandBlockEndTime: null,     // 屏蔽结束时间
@@ -2553,9 +2556,14 @@
           const effectiveSubEnergy = subE > motionThreshold ? subE : 0;
           const effectiveTotal = (effectiveMainEnergy + effectiveSubEnergy) / 2;
           
+          // 检查是否已过初始化等待期（6秒）
+          const timeSinceEnter = Date.now() - STATE.chapterEnterTime;
+          const gracePeriodEnded = timeSinceEnter >= STATE.chapterInitGracePeriod;
+          
           let targetStage = 0;
           
-          if (hasSub && effectiveTotal >= climaxThreshold) {
+          // Stage 3 (光子炸裂)：双手连接 + 有效总能量 >= 阈值 + 等待期结束
+          if (hasSub && effectiveTotal >= climaxThreshold && gracePeriodEnded) {
             targetStage = 3;
           } else if (hasMain && effectiveMainEnergy >= developThreshold) {
             targetStage = 2;
@@ -2584,10 +2592,14 @@
           // 高潮触发逻辑：双手总能量达标即可（不筛选各自能量）
           const totalEnergy = mainE + subE;
           
+          // 检查是否已过初始化等待期（6秒）
+          const timeSinceEnter = Date.now() - STATE.chapterEnterTime;
+          const gracePeriodEnded = timeSinceEnter >= STATE.chapterInitGracePeriod;
+          
           let targetStage = 0;
           
-          // Stage 3 (高潮/星球环绕)：双手连接 + 总能量 >= 阈值*2
-          if (hasSub && totalEnergy >= climaxThreshold * 2) {
+          // Stage 3 (高潮/星球环绕)：双手连接 + 总能量 >= 阈值*2 + 等待期结束
+          if (hasSub && totalEnergy >= climaxThreshold * 2 && gracePeriodEnded) {
             targetStage = 3;
           } else if (hasMain && mainE >= developThreshold) {
             targetStage = 2;
@@ -2616,10 +2628,14 @@
           // 高潮触发逻辑：双手总能量达标即可（不筛选各自能量）
           const totalEnergy = mainE + subE;
           
+          // 检查是否已过初始化等待期（6秒）
+          const timeSinceEnter = Date.now() - STATE.chapterEnterTime;
+          const gracePeriodEnded = timeSinceEnter >= STATE.chapterInitGracePeriod;
+          
           let targetPhase = 1;
           
-          // Phase 4 (爆发/穿越+粒子)：双手连接 + 总能量 >= 阈值*2
-          if (hasSub && totalEnergy >= climaxThreshold * 2) {
+          // Phase 4 (爆发/穿越+粒子)：双手连接 + 总能量 >= 阈值*2 + 等待期结束
+          if (hasSub && totalEnergy >= climaxThreshold * 2 && gracePeriodEnded) {
             targetPhase = 4;
           } else if (hasMain && mainE >= developThreshold) {
             targetPhase = 3;
@@ -2920,6 +2936,9 @@
       STATE.narrativePhase = chapter;
       STATE.narrativeSubPhase = '';
       STATE.showChapterTitle = true;
+      
+      // 记录进入章节的时间（用于初始化等待期）
+      STATE.chapterEnterTime = Date.now();
       
       // 重置文案触发状态（进入新章节时重置）
       STATE.narrativeTriggered = { developing: false, climax: false };

@@ -2578,6 +2578,13 @@
             showDevelopingText();
           } else if (targetStage === 3) {
             showClimaxText();
+          } else {
+            // 掉出发展/高潮状态，隐藏文案（检查最少5秒）
+            if (STATE.narrativeTriggered.climax) {
+              hideClimaxTextIfAllowed();
+            } else if (STATE.narrativeTriggered.developing) {
+              hideDevelopingTextIfAllowed();
+            }
           }
           
           // 更新调试显示
@@ -2621,6 +2628,13 @@
             showDevelopingText();
           } else if (targetStage === 3) {
             showClimaxText();
+          } else {
+            // 掉出发展/高潮状态，隐藏文案（检查最少5秒）
+            if (STATE.narrativeTriggered.climax) {
+              hideClimaxTextIfAllowed();
+            } else if (STATE.narrativeTriggered.developing) {
+              hideDevelopingTextIfAllowed();
+            }
           }
           
           // 更新调试显示
@@ -2716,8 +2730,12 @@
           // 回落检测逻辑：必须双手都低于阈值才开始计时
           const isBothStill = mainE < fadingThreshold && subE < fadingThreshold;
           
-          if (isBothStill) {
-            // 双手都静止，开始或继续计时
+          // 检查是否已过章节进入冷却期（至少5秒后才开始检测静止）
+          const timeSinceChapterEnter = Date.now() - STATE.chapterEnterTime;
+          const coolDownEnded = timeSinceChapterEnter >= 5000;
+          
+          if (isBothStill && coolDownEnded) {
+            // 双手都静止且冷却期结束，开始或继续计时
             if (STATE.spiralFadingStartTime === null) {
               STATE.spiralFadingStartTime = Date.now();
             } else {
@@ -3110,15 +3128,20 @@
     }
     
     // 显示发展文案（绑定视觉状态二）- 点Stage2, 线Stage2, 面Phase3
+    // 只要保持在发展状态或更高，文案就持续显示
     function showDevelopingText() {
       const phase = STATE.narrativePhase;
       const config = CHAPTER_CONFIG[phase];
       if (!config || !config.textDeveloping || !config.textDeveloping.cn) return;
       
-      // 检查是否已经显示过
-      if (STATE.narrativeTriggered.developing) return;
+      // 如果已经显示高潮文案，不显示发展文案
+      if (STATE.textIsShowing && STATE.narrativeTriggered.climax) return;
       
-      STATE.narrativeTriggered.developing = true;
+      // 记录开始显示时间（用于最少5秒显示检查）
+      if (!STATE.narrativeTriggered.developing) {
+        STATE.narrativeTriggered.developing = Date.now();
+      }
+      
       STATE.textIsShowing = true;
       
       const overlay = document.getElementById('narrative-overlay');
@@ -3128,26 +3151,43 @@
       cnEl.textContent = config.textDeveloping.cn;
       enEl.textContent = config.textDeveloping.en;
       overlay.classList.add('visible');
+    }
+    
+    // 隐藏发展文案（检查最少5秒显示时间）
+    function hideDevelopingTextIfAllowed() {
+      // 如果高潮文案正在显示，不隐藏
+      if (STATE.narrativeTriggered.climax) return;
       
-      // 5秒后隐藏
-      if (STATE.narrativeTimer) clearTimeout(STATE.narrativeTimer);
-      STATE.narrativeTimer = setTimeout(() => {
-        overlay.classList.remove('visible');
-        STATE.textIsShowing = false;
-        STATE.textLastShownTime = Date.now();
-      }, 5000);
+      // 检查是否已显示满5秒
+      const showStartTime = STATE.narrativeTriggered.developing;
+      if (showStartTime && typeof showStartTime === 'number') {
+        const elapsed = Date.now() - showStartTime;
+        if (elapsed < 5000) {
+          // 未满5秒，延迟隐藏
+          const remaining = 5000 - elapsed;
+          setTimeout(() => hideDevelopingTextIfAllowed(), remaining);
+          return;
+        }
+      }
+      
+      // 已满5秒或未显示，可以隐藏
+      const overlay = document.getElementById('narrative-overlay');
+      overlay.classList.remove('visible');
+      STATE.textIsShowing = false;
     }
     
     // 显示高潮文案（绑定视觉状态三）- 只在进入 Stage 3/Phase 4 时触发
+    // 只要保持在高潮状态，文案就持续显示
     function showClimaxText() {
       const phase = STATE.narrativePhase;
       const config = CHAPTER_CONFIG[phase];
       if (!config || !config.textClimax || !config.textClimax.cn) return;
       
-      // 检查是否已经显示过（避免重复触发）
-      if (STATE.narrativeTriggered.climax) return;
+      // 记录开始显示时间（用于最少5秒显示检查）
+      if (!STATE.narrativeTriggered.climax) {
+        STATE.narrativeTriggered.climax = Date.now();
+      }
       
-      STATE.narrativeTriggered.climax = true;
       STATE.textIsShowing = true;
       
       const overlay = document.getElementById('narrative-overlay');
@@ -3157,14 +3197,26 @@
       cnEl.textContent = config.textClimax.cn;
       enEl.textContent = config.textClimax.en;
       overlay.classList.add('visible');
+    }
+    
+    // 隐藏高潮文案（检查最少5秒显示时间）
+    function hideClimaxTextIfAllowed() {
+      // 检查是否已显示满5秒
+      const showStartTime = STATE.narrativeTriggered.climax;
+      if (showStartTime && typeof showStartTime === 'number') {
+        const elapsed = Date.now() - showStartTime;
+        if (elapsed < 5000) {
+          // 未满5秒，延迟隐藏
+          const remaining = 5000 - elapsed;
+          setTimeout(() => hideClimaxTextIfAllowed(), remaining);
+          return;
+        }
+      }
       
-      // 5秒后隐藏
-      if (STATE.narrativeTimer) clearTimeout(STATE.narrativeTimer);
-      STATE.narrativeTimer = setTimeout(() => {
-        overlay.classList.remove('visible');
-        STATE.textIsShowing = false;
-        STATE.textLastShownTime = Date.now();
-      }, 5000);
+      // 已满5秒或未显示，可以隐藏
+      const overlay = document.getElementById('narrative-overlay');
+      overlay.classList.remove('visible');
+      STATE.textIsShowing = false;
     }
     
     function hideNarrativeText() {

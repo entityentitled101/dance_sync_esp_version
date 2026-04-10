@@ -229,12 +229,18 @@
       
       // 基准线位置（屏幕中央偏下）
       const baseY = cy + 100;
-      const spacing = 10;
+      
+      // 动态层间距：能量越高，间距越大（中间黑色区域变大）
+      // P=0时 spacing=8, P=1时 spacing=16
+      const baseSpacing = 8 + P * 8;
       
       // 从底部（后景）向顶部（前景）绘制
       for (let i = 0; i < numLayers; i++) {
+        // 计算当前层的实际间距（可变的）
+        const currentSpacing = baseSpacing * (1 + Math.sin(i * 0.2) * 0.3);
+        
         // 应用俯瞰推进的Y偏移
-        const rawY = baseY - i * spacing;
+        const rawY = baseY - i * currentSpacing;
         const y = flyoverSystem.getYOffset(rawY, i, numLayers);
         
         // 计算透明度：前景(后面i)亮，后景(前面i)暗
@@ -258,14 +264,24 @@
           const progress = p / points;
           const x = startX + progress * lineLength;
           
-          // 钟形包络
+          // 钟形包络：能量越高，波峰越集中在中间
+          // P=0时 bellWidth=5（分散），P=1时 bellWidth=3（集中）
           const nx = progress - 0.5;
-          const bell = Math.exp(-Math.pow(nx * 5, 2));
+          const bellWidth = 5 - P * 2;  // 5→3
+          const bell = Math.exp(-Math.pow(nx * bellWidth, 2));
           
           // 噪声波形（加入滚动偏移）
           const t = STATE.wavePhase + flyoverSystem.scrollOffset * 0.01;
           const noise = Math.sin(p * 0.15 + t + i * 0.3) + Math.cos(p * 0.35 - t * 0.6 + i * 0.2) * 0.5;
-          const amp = Math.abs(noise) * (10 + P * 50) * bell * (0.4 + ratio * 0.6);
+          
+          // 振幅：能量越高，波峰越高且越集中在中间
+          // baseAmp: P=0时15, P=1时70（波峰更高）
+          const baseAmp = 15 + P * 55;
+          // 深度影响：前景更大
+          const depthAmp = 0.4 + ratio * 0.6;
+          // 集中度：P越高，边缘衰减越快
+          const concentration = 1 + P * 0.5;
+          const amp = Math.abs(noise) * baseAmp * Math.pow(bell, concentration) * depthAmp;
           
           const py = y - amp;
           

@@ -2600,7 +2600,7 @@
           // 更新调试显示
           const elEnergy = document.getElementById('debug-energy');
           const elStage = document.getElementById('debug-stage');
-          if (elEnergy) elEnergy.textContent = Math.round(effectiveMainEnergy) + '/' + Math.round(effectiveSubEnergy);
+          if (elEnergy) elEnergy.textContent = Math.round(mainE) + '/' + Math.round(subE);
           if (elStage) elStage.textContent = targetStage;
         }
         

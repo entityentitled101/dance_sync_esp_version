@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>声·命体 —— v3.0</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; overflow: hidden; }
+    #visual-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+    #menu-btn { position: fixed; bottom: 20px; left: 20px; width: 44px; height: 44px; background: rgba(10,10,10,0.9); border: 1px solid #444; border-radius: 8px; cursor: pointer; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
+    #menu-btn span { display: block; width: 18px; height: 1.5px; background: #888; }
+    #side-menu { position: fixed; bottom: 70px; left: 20px; width: 280px; background: rgba(8,8,8,0.98); border: 1px solid #333; border-radius: 12px; padding: 16px; z-index: 199; display: none; }
+    #side-menu.open { display: block; }
+    .section-title { font-size: 9px; letter-spacing: 2px; color: #666; text-transform: uppercase; margin-bottom: 10px; }
+    .slider-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .slider-row label { font-size: 10px; color: #888; min-width: 70px; }
+    .slider-row input[type="range"] { flex: 1; height: 4px; background: #333; border-radius: 2px; -webkit-appearance: none; }
+    .slider-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; background: #fff; border-radius: 50%; }
+    .slider-row .value { font-size: 10px; color: #fff; min-width: 50px; text-align: right; font-family: monospace; }
+    #chapter-panel { position: fixed; bottom: 20px; right: 20px; display: flex; gap: 8px; z-index: 100; }
+    .chapter-btn { padding: 10px 16px; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; border: 1px solid #444; background: transparent; color: #666; cursor: pointer; border-radius: 6px; }
+    .chapter-btn.active { border-color: #fff; color: #fff; background: rgba(255,255,255,0.1); }
+    #reset-btn { padding: 10px 12px; font-size: 9px; border: 1px solid #333; background: transparent; color: #444; cursor: pointer; border-radius: 6px; }
+    #conn-panel { position: fixed; bottom: 80px; right: 20px; background: rgba(10,10,10,0.95); border: 1px solid #333; border-radius: 12px; padding: 14px 18px; z-index: 100; min-width: 220px; }
+    .panel-header { font-size: 10px; letter-spacing: 3px; color: #666; text-transform: uppercase; text-align: center; border-bottom: 1px solid #222; padding-bottom: 8px; margin-bottom: 12px; }
+    .conn-btn { width: 100%; padding: 10px; font-size: 9px; letter-spacing: 2px; border: 1px solid #444; background: transparent; color: #666; cursor: pointer; border-radius: 4px; margin-bottom: 8px; }
+    .conn-btn.connected { border-color: #fff; color: #fff; background: rgba(255,255,255,0.1); }
+    .energy-bar { display: flex; align-items: center; gap: 8px; font-size: 9px; color: #666; margin-top: 8px; }
+    .energy-track { flex: 1; height: 3px; background: #222; border-radius: 2px; overflow: hidden; }
+    .energy-fill { height: 100%; background: #fff; width: 0%; }
+    #phase-indicator { position: fixed; top: 30px; left: 50%; transform: translateX(-50%); font-size: 10px; letter-spacing: 3px; color: rgba(255,255,255,0.5); z-index: 50; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <canvas id="visual-canvas"></canvas>
+  <div id="phase-indicator">第一章 · 开始</div>
+  
+  <div id="menu-btn" onclick="toggleMenu()"><span></span><span></span><span></span></div>
+  <div id="side-menu">
+    <div class="section-title">调试</div>
+    <div class="slider-row">
+      <label>手动强度</label>
+      <input type="range" id="manual-p" min="0" max="100" value="0" oninput="setManualProgress(this.value)">
+      <span class="value" id="val-manual">0%</span>
+    </div>
+    <div class="slider-row"><label>层数</label><span class="value" id="debug-layers">1</span></div>
+    <div class="slider-row"><label>P值</label><span class="value" id="debug-p">0.00</span></div>
+  </div>
+  
+  <div id="chapter-panel">
+    <button class="chapter-btn active" id="ch-1" onclick="setChapter(1)">第一章:线</button>
+    <button class="chapter-btn" id="ch-2" onclick="setChapter(2)">第二章:环</button>
+    <button class="chapter-btn" id="ch-3" onclick="setChapter(3)">第三章:旋</button>
+    <button id="reset-btn" onclick="resetSystem()">重置</button>
+  </div>
+  
+  <div id="conn-panel">
+    <div class="panel-header">声·命体 v3.0</div>
+    <button class="conn-btn" id="ble-main" onclick="startBLE(0)">🔵 连接主手 ESP32</button>
+    <button class="conn-btn" id="ble-sub" onclick="startBLE(1)">🔵 连接副手 ESP32</button>
+    <div class="energy-bar">
+      <span>ENERGY</span>
+      <div class="energy-track"><div class="energy-fill" id="energy-fill"></div></div>
+      <span id="energy-value">0</span>
+    </div>
+  </div>
+
+  <script>
+    // ═══════════════════════════════════════════════════
+    // 配置
+    // ═══════════════════════════════════════════════════
+    const CONFIG = {
+      threshold: 20,
+      cooldown: 25,
+      smoothFrames: 15,
+    };
+    
+    const STATE = {
+      chapter: 1,
+      morphProgress: 0,
+      targetProgress: 0,
+      mainEnergy: 0,
+      subEnergy: 0,
+      mainPeaked: false,
+      subPeaked: false,
+      peakHold: 0,
+      prevMainVel: 0,
+      prevSubVel: 0,
+      mainBuf: [],
+      subBuf: [],
+      wavePhase: 0,
+      manualOverride: false,
+    };
+    
+    const ctrl = [
+      { connected: false, bleDevice: null, bleChar: null },
+      { connected: false, bleDevice: null, bleChar: null }
+    ];
+    
+    const SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214';
+    const CHAR_UUID = '03504231-c554-43a4-b711-0b2945565834';
+    const DEVICE_NAMES = ['ESP32', 'ESP32-mini'];
+    
+    // ═══════════════════════════════════════════════════
+    // 绘制第一章：Joy Division 风格（确保多层可见）
+    // ═══════════════════════════════════════════════════
+    function drawChapter1(ctx, cx, cy, width, height) {
+      const P = STATE.morphProgress;
+      const numLayers = Math.floor(1 + P * 29);
+      const lineLength = 300 + P * 600;
+      
+      // 基准线位置（屏幕中央）
+      const baseY = cy + 80;
+      const spacing = 10;
+      
+      // 从底部（后景）向顶部（前景）绘制
+      for (let i = 0; i < numLayers; i++) {
+        const y = baseY - i * spacing;
+        
+        // 计算透明度：前景(后面i)亮，后景(前面i)暗
+        const ratio = i / (numLayers - 1 || 1);
+        const alpha = 0.1 + ratio * 0.9;
+        
+        // 保存上下文
+        ctx.save();
+        
+        // 设置样式
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineWidth = 1.4;
+        ctx.lineCap = 'round';
+        
+        // 绘制波形路径
+        ctx.beginPath();
+        const points = 100;
+        const startX = cx - lineLength / 2;
+        
+        for (let p = 0; p <= points; p++) {
+          const progress = p / points;
+          const x = startX + progress * lineLength;
+          
+          // 钟形包络
+          const nx = progress - 0.5;
+          const bell = Math.exp(-Math.pow(nx * 6, 2));
+          
+          // 噪声波形
+          const t = STATE.wavePhase;
+          const noise = Math.sin(p * 0.2 + t + i * 0.3) + Math.cos(p * 0.4 - t * 0.6 + i * 0.2) * 0.5;
+          const amp = Math.abs(noise) * (10 + P * 40) * bell * (0.4 + ratio * 0.6);
+          
+          const py = y - amp;
+          
+          if (p === 0) ctx.moveTo(x, py);
+          else ctx.lineTo(x, py);
+        }
+        
+        // 只描边，不填充（避免覆盖下层线条）
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    
+    // 其他章节简化版
+    function drawChapter2(ctx, cx, cy, width, height) {
+      const P = STATE.morphProgress;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.4;
+      
+      const radius = 100 + P * 200;
+      ctx.beginPath();
+      for (let i = 0; i <= 200; i++) {
+        const t = (i / 200) * Math.PI * 2;
+        const x = cx + radius * Math.cos(t);
+        const y = cy + radius * Math.sin(t) * 0.3 + (1-P) * Math.sin(t * 2) * 50;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      if (P > 0.9) ctx.closePath();
+      ctx.stroke();
+    }
+    
+    function drawChapter3(ctx, cx, cy, width, height) {
+      const P = STATE.morphProgress;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.4;
+      
+      const arms = Math.floor(1 + P * 6);
+      for (let arm = 0; arm < arms; arm++) {
+        const offset = (arm / arms) * Math.PI * 2;
+        ctx.beginPath();
+        for (let i = 0; i <= 200; i++) {
+          const progress = i / 200;
+          const theta = progress * Math.PI * 4 + offset;
+          const r = progress * (50 + P * 300);
+          const x = cx + r * Math.cos(theta);
+          const y = cy + r * Math.sin(theta) * 0.7;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // 视觉引擎
+    // ═══════════════════════════════════════════════════
+    class VisualEngine {
+      constructor() {
+        this.canvas = document.getElementById('visual-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.dpr = window.devicePixelRatio || 1;
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        this.animate();
+      }
+      
+      resize() {
+        this.dpr = window.devicePixelRatio || 1;
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        this.canvas.style.width = this.width + 'px';
+        this.canvas.style.height = this.height + 'px';
+        this.canvas.width = this.width * this.dpr;
+        this.canvas.height = this.height * this.dpr;
+        this.ctx.scale(this.dpr, this.dpr);
+      }
+      
+      animate() {
+        requestAnimationFrame(() => this.animate());
+        
+        this.updateLogic();
+        
+        // 清屏
+        this.ctx.fillStyle = '#000';
+        this.ctx.fillRect(0, 0, this.width, this.height);
+        
+        const cx = this.width / 2;
+        const cy = this.height / 2;
+        
+        switch (STATE.chapter) {
+          case 1: drawChapter1(this.ctx, cx, cy, this.width, this.height); break;
+          case 2: drawChapter2(this.ctx, cx, cy, this.width, this.height); break;
+          case 3: drawChapter3(this.ctx, cx, cy, this.width, this.height); break;
+        }
+        
+        this.updateUI();
+      }
+      
+      updateLogic() {
+        if (STATE.manualOverride) return;
+        
+        const hasSub = ctrl[1].connected;
+        const maxE = Math.max(STATE.mainEnergy, STATE.subEnergy);
+        
+        if (STATE.peakHold > 0) STATE.peakHold--;
+        else { STATE.mainPeaked = false; STATE.subPeaked = false; }
+        
+        let target = 0;
+        if (hasSub && STATE.mainPeaked && STATE.subPeaked && maxE > 70) {
+          target = 1.0;
+        } else if (maxE > 30) {
+          target = 0.3 + (maxE / 100) * 0.4;
+        }
+        
+        STATE.targetProgress = target;
+        STATE.morphProgress += (STATE.targetProgress - STATE.morphProgress) * 0.04;
+        STATE.wavePhase += 0.02;
+      }
+      
+      updateUI() {
+        const P = STATE.morphProgress;
+        const layers = Math.floor(1 + P * 29);
+        
+        const elLayers = document.getElementById('debug-layers');
+        const elP = document.getElementById('debug-p');
+        const elEnergy = document.getElementById('energy-fill');
+        const elVal = document.getElementById('energy-value');
+        
+        if (elLayers) elLayers.textContent = layers;
+        if (elP) elP.textContent = P.toFixed(2);
+        if (elEnergy) elEnergy.style.width = (STATE.mainEnergy + STATE.subEnergy) / 2 + '%';
+        if (elVal) elVal.textContent = Math.round((STATE.mainEnergy + STATE.subEnergy) / 2);
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // 传感器处理
+    // ═══════════════════════════════════════════════════
+    function detectPeak(velocity, isMain) {
+      const prev = isMain ? STATE.prevMainVel : STATE.prevSubVel;
+      if (velocity > prev * 1.1 && velocity > CONFIG.threshold) {
+        if (isMain) STATE.mainPeaked = true;
+        else STATE.subPeaked = true;
+        STATE.peakHold = CONFIG.cooldown;
+      }
+      if (isMain) STATE.prevMainVel = velocity;
+      else STATE.prevSubVel = velocity;
+    }
+    
+    function updateEnergy(accMag, gyroMag, isMain) {
+      const net = Math.max(0, accMag - 9.8);
+      const instant = Math.min(100, (net + gyroMag * 0.5) * 8);
+      const buf = isMain ? STATE.mainBuf : STATE.subBuf;
+      buf.push(instant);
+      if (buf.length > CONFIG.smoothFrames) buf.shift();
+      const energy = buf.reduce((a,b) => a+b, 0) / buf.length;
+      if (isMain) STATE.mainEnergy = energy;
+      else STATE.subEnergy = energy;
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // BLE
+    // ═══════════════════════════════════════════════════
+    async function startBLE(idx) {
+      if (!navigator.bluetooth) { alert('需要Chrome/Edge'); return; }
+      
+      const btn = document.getElementById(idx === 0 ? 'ble-main' : 'ble-sub');
+      const c = ctrl[idx];
+      
+      if (c.connected) {
+        try { if (c.bleDevice) c.bleDevice.gatt.disconnect(); } catch(e){}
+        c.connected = false; c.bleDevice = null; c.bleChar = null;
+        btn.textContent = idx === 0 ? '🔵 连接主手 ESP32' : '🔵 连接副手 ESP32';
+        btn.classList.remove('connected');
+        return;
+      }
+      
+      btn.textContent = '扫描中...'; btn.disabled = true;
+      
+      try {
+        c.bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ name: DEVICE_NAMES[idx] }],
+          optionalServices: [SERVICE_UUID]
+        });
+        
+        c.bleDevice.addEventListener('gattserverdisconnected', () => {
+          c.connected = false; c.bleDevice = null; c.bleChar = null;
+          btn.textContent = idx === 0 ? '🔵 连接主手 ESP32' : '🔵 连接副手 ESP32';
+          btn.classList.remove('connected');
+        });
+        
+        const server = await c.bleDevice.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        c.bleChar = await service.getCharacteristic(CHAR_UUID);
+        await c.bleChar.startNotifications();
+        
+        c.bleChar.addEventListener('characteristicvaluechanged', (e) => {
+          try {
+            const data = JSON.parse(new TextDecoder().decode(e.target.value));
+            onSensorData(idx, data);
+          } catch(_) {}
+        });
+        
+        c.connected = true;
+        btn.textContent = '🔵 已连接';
+        btn.classList.add('connected');
+        btn.disabled = false;
+      } catch (e) {
+        btn.textContent = idx === 0 ? '🔵 连接主手 ESP32' : '🔵 连接副手 ESP32';
+        btn.disabled = false;
+      }
+    }
+    
+    function onSensorData(idx, data) {
+      const isMain = idx === 0;
+      let ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0;
+      if (data.ax !== undefined) {
+        ax = +data.ax; ay = +data.ay; az = +data.az;
+        gx = +data.gx; gy = +data.gy; gz = +data.gz;
+      }
+      const accMag = Math.sqrt(ax*ax + ay*ay + az*az);
+      const gyroMag = Math.sqrt(gx*gx + gy*gy + gz*gz);
+      detectPeak(accMag, isMain);
+      updateEnergy(accMag, gyroMag, isMain);
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // UI
+    // ═══════════════════════════════════════════════════
+    function setManualProgress(val) {
+      STATE.morphProgress = val / 100;
+      STATE.manualOverride = val > 0;
+      const el = document.getElementById('val-manual');
+      if (el) el.textContent = val + '%';
+    }
+    
+    function setChapter(ch) {
+      STATE.chapter = ch;
+      STATE.morphProgress = 0;
+      STATE.targetProgress = 0;
+      [1,2,3].forEach(i => {
+        const btn = document.getElementById('ch-' + i);
+        if (btn) btn.classList.toggle('active', i === ch);
+      });
+    }
+    
+    function resetSystem() {
+      STATE.morphProgress = 0;
+      STATE.targetProgress = 0;
+      STATE.mainEnergy = 0;
+      STATE.subEnergy = 0;
+      STATE.mainPeaked = false;
+      STATE.subPeaked = false;
+      STATE.mainBuf = [];
+      STATE.subBuf = [];
+    }
+    
+    function toggleMenu() {
+      const menu = document.getElementById('side-menu');
+      if (menu) menu.classList.toggle('open');
+    }
+    
+    // 启动
+    new VisualEngine();
+  </script>
+</body>
+</html>

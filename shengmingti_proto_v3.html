@@ -165,7 +165,7 @@
     <button class="chapter-btn" id="ch-2" onclick="jumpToChapter('ch2')">线</button>
     <button class="chapter-btn" id="ch-3" onclick="jumpToChapter('ch3')">面</button>
     <button class="chapter-btn" id="ch-4" onclick="jumpToChapter('ch4')">螺旋</button>
-    <button id="reset-btn" onclick="resetSystem()">重置</button>
+    <button id="reset-btn" onclick="forceEnding()">结束</button>
   </div>
   
   <div id="conn-panel">
@@ -2680,6 +2680,13 @@
             showDevelopingText();
           } else if (targetPhase === 4) {
             showClimaxText();
+          } else {
+            // 掉出发展/高潮状态，隐藏文案（检查最少5秒）
+            if (STATE.narrativeTriggered.climax) {
+              hideClimaxTextIfAllowed();
+            } else if (STATE.narrativeTriggered.developing) {
+              hideDevelopingTextIfAllowed();
+            }
           }
           
           // 更新调试显示
@@ -2727,8 +2734,16 @@
           // 应用到 SymphonyAPI
           this.chapter4.setSpeed(smoothSpeed);
           
-          // 回落检测逻辑：必须双手都低于阈值才开始计时
-          const isBothStill = mainE < fadingThreshold && subE < fadingThreshold;
+          // 回落检测逻辑：使用平滑后的能量避免瞬时波动触发
+          // 初始化平滑能量（使用很慢的平滑系数）
+          if (STATE.spiralMainEnergySmooth === undefined) STATE.spiralMainEnergySmooth = mainE;
+          if (STATE.spiralSubEnergySmooth === undefined) STATE.spiralSubEnergySmooth = subE;
+          // 平滑系数 0.02 = 约50帧才能完全反应变化
+          STATE.spiralMainEnergySmooth += (mainE - STATE.spiralMainEnergySmooth) * 0.02;
+          STATE.spiralSubEnergySmooth += (subE - STATE.spiralSubEnergySmooth) * 0.02;
+          
+          // 使用平滑能量判断静止状态
+          const isBothStill = STATE.spiralMainEnergySmooth < fadingThreshold && STATE.spiralSubEnergySmooth < fadingThreshold;
           
           // 检查是否已过章节进入冷却期（至少5秒后才开始检测静止）
           const timeSinceChapterEnter = Date.now() - STATE.chapterEnterTime;
@@ -2909,6 +2924,48 @@
       STATE.subPeaked = false;
       STATE.mainBuf = [];
       STATE.subBuf = [];
+    }
+    
+    // 强制结束：直接进入最后一句文案
+    function forceEnding() {
+      // 切换到结尾状态
+      STATE.narrativePhase = 'ending';
+      
+      // 隐藏所有视觉
+      if (window.visualEngine) {
+        const engine = window.visualEngine;
+        if (engine.chapter1) engine.chapter1.root.visible = false;
+        if (engine.chapter2) engine.chapter2.root.visible = false;
+        if (engine.chapter3) engine.chapter3.root.visible = false;
+        if (engine.chapter4) {
+          engine.chapter4.pt_Master.visible = false;
+          engine.chapter4.ln_Master.visible = false;
+          engine.chapter4.fc_Master.visible = false;
+        }
+      }
+      
+      // 黑屏背景
+      if (window.scene) {
+        window.scene.background = new THREE.Color(0x000000);
+      }
+      
+      // 清除之前的文案计时器
+      if (STATE.narrativeTimer) {
+        clearTimeout(STATE.narrativeTimer);
+        STATE.narrativeTimer = null;
+      }
+      
+      // 直接显示最后一句文案
+      const overlay = document.getElementById('narrative-overlay');
+      const cnEl = overlay.querySelector('.narrative-cn');
+      const enEl = overlay.querySelector('.narrative-en');
+      
+      cnEl.textContent = CHAPTER_CONFIG.ch4.textEnding.cn;
+      enEl.textContent = CHAPTER_CONFIG.ch4.textEnding.en;
+      overlay.classList.add('visible');
+      
+      // 更新顶部标题
+      updatePhaseIndicator('');
     }
     
     // ═══════════════════════════════════════════════════
@@ -3155,9 +3212,6 @@
     
     // 隐藏发展文案（检查最少5秒显示时间）
     function hideDevelopingTextIfAllowed() {
-      // 如果高潮文案正在显示，不隐藏
-      if (STATE.narrativeTriggered.climax) return;
-      
       // 检查是否已显示满5秒
       const showStartTime = STATE.narrativeTriggered.developing;
       if (showStartTime && typeof showStartTime === 'number') {

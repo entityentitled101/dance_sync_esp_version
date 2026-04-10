@@ -103,20 +103,139 @@
     const DEVICE_NAMES = ['ESP32', 'ESP32-mini'];
     
     // ═══════════════════════════════════════════════════
-    // 绘制第一章：Joy Division 风格（确保多层可见）
+    // 俯瞰推进效果系统（替代祥云）
+    // ═══════════════════════════════════════════════════
+    class FlyoverSystem {
+      constructor() {
+        this.isActive = false;
+        this.peakStartTime = null;
+        this.cameraZ = 0;        // 相机深度（0=正常，1=推进到最近）
+        this.scrollOffset = 0;   // 线条滚动偏移
+        this.edgeOpacity = 0;    // 上下边缘填充透明度
+      }
+      
+      update(totalEnergy) {
+        // 追踪峰值状态
+        if (totalEnergy >= 95) {
+          if (!this.peakStartTime) {
+            this.peakStartTime = Date.now();
+          }
+          
+          const peakDuration = Date.now() - this.peakStartTime;
+          
+          // 5秒后激活俯瞰效果
+          if (peakDuration > 5000) {
+            this.isActive = true;
+          }
+          
+          // 相机推进（8秒完成推进）
+          const progress = Math.min(1, (peakDuration - 5000) / 8000);
+          this.cameraZ = progress; // 0→1
+          
+          // 上下边缘填充渐显
+          this.edgeOpacity = Math.min(0.6, this.edgeOpacity + 0.02);
+          
+        } else {
+          this.peakStartTime = null;
+          this.isActive = false;
+          this.cameraZ = Math.max(0, this.cameraZ - 0.05);
+          this.edgeOpacity = Math.max(0, this.edgeOpacity - 0.03);
+        }
+        
+        // 持续滚动（像无人机向前飞）
+        if (this.isActive || this.cameraZ > 0.01) {
+          this.scrollOffset += 0.5 + this.cameraZ * 2; // 速度随推进加快
+        }
+      }
+      
+      draw(ctx, width, height) {
+        if (this.edgeOpacity > 0.01) {
+          this.drawEdgeFill(ctx, width, height);
+        }
+      }
+      
+      drawEdgeFill(ctx, width, height) {
+        // 上方渐变填充
+        const topGradient = ctx.createLinearGradient(0, 0, 0, height * 0.25);
+        topGradient.addColorStop(0, `rgba(255, 255, 255, ${this.edgeOpacity * 0.3})`);
+        topGradient.addColorStop(0.5, `rgba(255, 255, 255, ${this.edgeOpacity * 0.15})`);
+        topGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        
+        ctx.fillStyle = topGradient;
+        ctx.fillRect(0, 0, width, height * 0.25);
+        
+        // 下方渐变填充
+        const bottomGradient = ctx.createLinearGradient(0, height * 0.75, 0, height);
+        bottomGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        bottomGradient.addColorStop(0.5, `rgba(255, 255, 255, ${this.edgeOpacity * 0.15})`);
+        bottomGradient.addColorStop(1, `rgba(255, 255, 255, ${this.edgeOpacity * 0.3})`);
+        
+        ctx.fillStyle = bottomGradient;
+        ctx.fillRect(0, height * 0.75, width, height * 0.25);
+      }
+      
+      // 获取相机推进后的Y坐标偏移
+      getYOffset(originalY, layerIndex, totalLayers) {
+        if (this.cameraZ < 0.01) return originalY;
+        
+        // 推进时，远处的层（小的index）移动更多，营造透视感
+        const depthRatio = layerIndex / (totalLayers - 1 || 1);
+        const perspectiveShift = this.cameraZ * 150 * (1 - depthRatio);
+        
+        // 持续向下滚动
+        const scrollShift = (this.scrollOffset + layerIndex * 10) % 200;
+        
+        return originalY + perspectiveShift + scrollShift * 0.3;
+      }
+      
+      // 获取推进后的线条粗细（近大远小）
+      getLineWidth(baseWidth, layerIndex, totalLayers) {
+        if (this.cameraZ < 0.01) return baseWidth;
+        
+        const depthRatio = layerIndex / (totalLayers - 1 || 1);
+        // 前景（大的index）变粗，后景（小的index）变细
+        return baseWidth * (0.5 + this.cameraZ * 0.5 + depthRatio * (1 + this.cameraZ));
+      }
+    }
+    
+    // 全局俯瞰系统
+    const flyoverSystem = new FlyoverSystem();
+    
+    // ═══════════════════════════════════════════════════
+    // 暗角效果
+    // ═══════════════════════════════════════════════════
+    function drawVignette(ctx, width, height) {
+      const gradient = ctx.createRadialGradient(
+        width / 2, height / 2, Math.min(width, height) * 0.3,
+        width / 2, height / 2, Math.max(width, height) * 0.8
+      );
+      gradient.addColorStop(0, 'rgba(0,0,0,0)');
+      gradient.addColorStop(0.6, 'rgba(0,0,0,0.2)');
+      gradient.addColorStop(1, 'rgba(0,0,0,0.6)');
+      
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // 绘制第一章：Joy Division 风格（俯瞰推进效果）
     // ═══════════════════════════════════════════════════
     function drawChapter1(ctx, cx, cy, width, height) {
       const P = STATE.morphProgress;
       const numLayers = Math.floor(1 + P * 29);
-      const lineLength = 300 + P * 600;
       
-      // 基准线位置（屏幕中央）
-      const baseY = cy + 80;
+      // 线条延伸到屏幕边缘
+      const lineLength = width * 0.95;
+      
+      // 基准线位置（屏幕中央偏下）
+      const baseY = cy + 100;
       const spacing = 10;
       
       // 从底部（后景）向顶部（前景）绘制
       for (let i = 0; i < numLayers; i++) {
-        const y = baseY - i * spacing;
+        // 应用俯瞰推进的Y偏移
+        const rawY = baseY - i * spacing;
+        const y = flyoverSystem.getYOffset(rawY, i, numLayers);
         
         // 计算透明度：前景(后面i)亮，后景(前面i)暗
         const ratio = i / (numLayers - 1 || 1);
@@ -125,15 +244,15 @@
         // 保存上下文
         ctx.save();
         
-        // 设置样式
+        // 设置样式（应用俯瞰推进的线条粗细变化）
         ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-        ctx.lineWidth = 1.4;
+        ctx.lineWidth = flyoverSystem.getLineWidth(1.4, i, numLayers);
         ctx.lineCap = 'round';
         
         // 绘制波形路径
         ctx.beginPath();
-        const points = 100;
-        const startX = cx - lineLength / 2;
+        const points = 150;
+        const startX = (width - lineLength) / 2;
         
         for (let p = 0; p <= points; p++) {
           const progress = p / points;
@@ -141,12 +260,12 @@
           
           // 钟形包络
           const nx = progress - 0.5;
-          const bell = Math.exp(-Math.pow(nx * 6, 2));
+          const bell = Math.exp(-Math.pow(nx * 5, 2));
           
-          // 噪声波形
-          const t = STATE.wavePhase;
-          const noise = Math.sin(p * 0.2 + t + i * 0.3) + Math.cos(p * 0.4 - t * 0.6 + i * 0.2) * 0.5;
-          const amp = Math.abs(noise) * (10 + P * 40) * bell * (0.4 + ratio * 0.6);
+          // 噪声波形（加入滚动偏移）
+          const t = STATE.wavePhase + flyoverSystem.scrollOffset * 0.01;
+          const noise = Math.sin(p * 0.15 + t + i * 0.3) + Math.cos(p * 0.35 - t * 0.6 + i * 0.2) * 0.5;
+          const amp = Math.abs(noise) * (10 + P * 50) * bell * (0.4 + ratio * 0.6);
           
           const py = y - amp;
           
@@ -154,10 +273,13 @@
           else ctx.lineTo(x, py);
         }
         
-        // 只描边，不填充（避免覆盖下层线条）
+        // 只描边，不填充
         ctx.stroke();
         ctx.restore();
       }
+      
+      // 绘制上下边缘填充（俯瞰推进效果）
+      flyoverSystem.draw(ctx, width, height);
     }
     
     // 其他章节简化版
@@ -237,11 +359,18 @@
         const cx = this.width / 2;
         const cy = this.height / 2;
         
+        // 更新俯瞰推进系统
+        const totalEnergy = (STATE.mainEnergy + STATE.subEnergy) / 2;
+        flyoverSystem.update(totalEnergy);
+        
         switch (STATE.chapter) {
           case 1: drawChapter1(this.ctx, cx, cy, this.width, this.height); break;
           case 2: drawChapter2(this.ctx, cx, cy, this.width, this.height); break;
           case 3: drawChapter3(this.ctx, cx, cy, this.width, this.height); break;
         }
+        
+        // 绘制暗角效果
+        drawVignette(this.ctx, this.width, this.height);
         
         this.updateUI();
       }
@@ -277,7 +406,7 @@
         const elVal = document.getElementById('energy-value');
         
         if (elLayers) elLayers.textContent = layers;
-        if (elP) elP.textContent = P.toFixed(2);
+        if (elP) elP.textContent = P.toFixed(2) + ' | 俯瞰:' + (flyoverSystem.isActive ? 'ON' : 'OFF') + ' Z:' + flyoverSystem.cameraZ.toFixed(2);
         if (elEnergy) elEnergy.style.width = (STATE.mainEnergy + STATE.subEnergy) / 2 + '%';
         if (elVal) elVal.textContent = Math.round((STATE.mainEnergy + STATE.subEnergy) / 2);
       }

@@ -46,6 +46,65 @@
     </div>
     <div class="slider-row"><label>层数</label><span class="value" id="debug-layers">1</span></div>
     <div class="slider-row"><label>P值</label><span class="value" id="debug-p">0.00</span></div>
+    
+    <div class="section-title" style="margin-top: 15px;">视觉开关</div>
+    <div class="slider-row">
+      <label>底部填充</label>
+      <input type="checkbox" id="toggle-fill" checked onchange="STATE.enableBottomFill = this.checked">
+    </div>
+    <div class="slider-row">
+      <label>近大远小</label>
+      <input type="checkbox" id="toggle-width" onchange="STATE.enableLineWidthVar = this.checked">
+    </div>
+    <div class="slider-row">
+      <label>非均匀间距</label>
+      <input type="checkbox" id="toggle-spacing" checked onchange="STATE.enableUnevenSpacing = this.checked">
+    </div>
+    <div class="slider-row">
+      <label>Y轴渐变</label>
+      <input type="checkbox" id="toggle-ygrad" checked onchange="STATE.enableYGradient = this.checked">
+    </div>
+    
+    <div class="section-title" style="margin-top: 15px;">线条参数</div>
+    <div class="slider-row">
+      <label>间距</label>
+      <input type="range" min="5" max="25" value="10" oninput="STATE.lineSpacing = parseInt(this.value); document.getElementById('val-spacing').textContent = this.value">
+      <span class="value" id="val-spacing">10</span>
+    </div>
+    <div class="slider-row">
+      <label>位置偏移</label>
+      <input type="range" min="-150" max="150" value="0" oninput="STATE.verticalOffset = parseInt(this.value); document.getElementById('val-offset').textContent = this.value">
+      <span class="value" id="val-offset">0</span>
+    </div>
+    <div class="slider-row">
+      <label>顶部边距</label>
+      <input type="range" min="0" max="200" value="80" oninput="STATE.marginTop = parseInt(this.value); document.getElementById('val-mtop').textContent = this.value">
+      <span class="value" id="val-mtop">80</span>
+    </div>
+    <div class="slider-row">
+      <label>底部边距</label>
+      <input type="range" min="0" max="200" value="80" oninput="STATE.marginBottom = parseInt(this.value); document.getElementById('val-mbot').textContent = this.value">
+      <span class="value" id="val-mbot">80</span>
+    </div>
+    
+    <div class="section-title" style="margin-top: 15px;">笔刷效果</div>
+    <div class="slider-row">
+      <label>中心粗细</label>
+      <input type="range" min="5" max="30" value="14" oninput="STATE.lineWidthCenter = parseInt(this.value)/10; document.getElementById('val-wc').textContent = STATE.lineWidthCenter.toFixed(1)">
+      <span class="value" id="val-wc">1.4</span>
+    </div>
+    <div class="slider-row">
+      <label>边缘粗细</label>
+      <input type="range" min="5" max="25" value="10" oninput="STATE.lineWidthEdge = parseInt(this.value)/10; document.getElementById('val-we').textContent = STATE.lineWidthEdge.toFixed(1)">
+      <span class="value" id="val-we">1.0</span>
+    </div>
+    
+    <div class="section-title" style="margin-top: 15px;">填充效果</div>
+    <div class="slider-row">
+      <label>粒子透明度</label>
+      <input type="range" min="0" max="50" value="0" oninput="STATE.fillOpacity = parseInt(this.value); document.getElementById('val-fop').textContent = this.value + '%'">
+      <span class="value" id="val-fop">0%</span>
+    </div>
   </div>
   
   <div id="chapter-panel">
@@ -91,6 +150,19 @@
       subBuf: [],
       wavePhase: 0,
       manualOverride: false,
+      // 视觉开关
+      enableBottomFill: true,      // 底部填充
+      enableLineWidthVar: false,   // 近大远小
+      enableUnevenSpacing: true,   // 非均匀间距
+      enableYGradient: true,       // Y轴透明度渐变
+      // 可调节参数
+      lineSpacing: 10,             // 线条基础间距 (5-20)
+      lineWidthCenter: 1.4,        // 线条中心粗细 (0.5-3)
+      lineWidthEdge: 1.0,          // 线条边缘粗细 (0.5-2)
+      verticalOffset: 0,           // 垂直偏移 (-100 到 100)
+      fillOpacity: 0,              // 填充透明度粒子 (0-50)
+      marginTop: 80,               // 顶部边距
+      marginBottom: 80,            // 底部边距
     };
     
     const ctrl = [
@@ -218,87 +290,149 @@
     }
     
     // ═══════════════════════════════════════════════════
-    // 绘制第一章：Joy Division 风格（参考VerD实现）
+    // 绘制第一章：Joy Division 风格（俯瞰推进效果）
     // ═══════════════════════════════════════════════════
     function drawChapter1(ctx, cx, cy, width, height) {
       const P = STATE.morphProgress;
       const numLayers = Math.floor(1 + P * 29);
       
-      // 视图参数（参考VerD）
+      // 视图参数（可调节）
       const viewW = width * 0.95;
-      const viewH = height * 0.6;
-      const spacingY = viewH / 30;  // 固定间距，像VerD一样
-      const elev = cy + height * 0.1;  // 基准高度
+      const spacingY = STATE.lineSpacing;  // 使用可调节的间距
+      const elev = cy + STATE.verticalOffset + height * 0.1;  // 基准高度 + 偏移
+      const marginTop = STATE.marginTop;
+      const marginBottom = STATE.marginBottom;
+      const usableHeight = height - marginTop - marginBottom;
       
       // 从远到近绘制（参考VerD：i=0最远，i=大最近）
       for (let i = numLayers - 1; i >= 0; i--) {
         const normZ = i / (numLayers - 1 || 1);  // 0=最远，1=最近
         
-        // Y位置：从屏幕下方往上方排列（像VerD）
+        // Y位置：从屏幕下方往上方排列
         const baseY = elev - i * spacingY;
         const y = flyoverSystem.getYOffset(baseY, i, numLayers);
         
-        // 深度渐变（参考VerD的zFade）
-        const alpha = 0.3 + normZ * 0.7;
+        // 检查是否在有效范围内（上下边距）
+        if (y < marginTop || y > height - marginBottom) continue;
         
-        ctx.save();
-        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-        ctx.lineWidth = flyoverSystem.getLineWidth(1.4, i, numLayers);
+        // 深度渐变
+        let alpha;
+        if (STATE.enableYGradient) {
+          const usableY = y - marginTop;
+          const screenRatio = usableY / usableHeight;
+          if (screenRatio < 0.5) {
+            alpha = 0.2 + screenRatio * 1.6;
+          } else {
+            alpha = 1.0 - (screenRatio - 0.5) * 0.8;
+          }
+          alpha = Math.max(0.15, Math.min(1.0, alpha));
+        } else {
+          alpha = 0.3 + normZ * 0.7;
+        }
         
         // 绘制波形
         const points = 140;
         const startX = (width - viewW) / 2;
         const pts = [];  // 存储点用于填充
         
-        ctx.beginPath();
+        // 预计算所有点
         for (let p = 0; p <= points; p++) {
           const progress = p / points;
           const x = startX + progress * viewW;
           const nx = progress - 0.5;
           
-          // 钟形包络（参考VerD：dx * 7）
+          // 钟形包络
           let bell = Math.exp(-Math.pow(nx * 7, 2));
-          if (Math.abs(nx) >= 0.45) bell = 0;  // 两端裁切
+          if (Math.abs(nx) >= 0.45) bell = 0;
           
-          // 多层噪声（参考VerD）
+          // 圆润波形
           const t = STATE.wavePhase + flyoverSystem.scrollOffset * 0.01;
-          const noise1 = Math.sin(p * 0.2 + t * 1.5 + i * 0.3);
-          const noise2 = Math.cos(p * 0.45 - t * 0.8 - i * 0.5) * 0.5;
-          const noise3 = Math.sin(p * 1.1 + t * 0.5 + i * 1.2) * 0.25;
-          const ridge = Math.abs(noise1 + noise2 + noise3);
+          const noise = Math.sin(p * 0.15 + t + i * 0.3) + Math.cos(p * 0.35 - t * 0.6 + i * 0.2) * 0.5;
+          const ridge = Math.abs(noise);
           
-          // 振幅（参考VerD风格）
-          const baseAmp = 20 + P * 35;  // 基础振幅
-          const depthAmp = 0.5 + normZ * 0.5;  // 前景更大
+          // 振幅
+          const baseAmp = 20 + P * 50;
+          const depthAmp = 0.5 + normZ * 0.5;
           const amp = ridge * baseAmp * bell * depthAmp;
           
           const py = y - amp;
-          pts.push({x, y: py});
-          
-          if (p === 0) ctx.moveTo(x, py);
-          else ctx.lineTo(x, py);
+          pts.push({x, y: py, progress, bell});
         }
-        ctx.stroke();
         
-        // 底部填充（关键！参考VerD 1576-1577行）
-        if (pts.length > 0) {
+        // 绘制线条（支持笔刷效果：中间粗两边细）
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineCap = 'round';
+        
+        // 分段绘制以实现笔刷效果
+        const segments = 20;  // 分段数
+        const ptsPerSeg = Math.floor(pts.length / segments);
+        
+        for (let seg = 0; seg < segments; seg++) {
+          const startIdx = seg * ptsPerSeg;
+          const endIdx = Math.min((seg + 1) * ptsPerSeg, pts.length - 1);
+          
+          // 计算当前段的笔刷粗细（中间粗两边细）
+          const segCenter = (seg + 0.5) / segments;  // 0-1，0.5是中心
+          const brushFactor = 1 - Math.abs(segCenter - 0.5) * 2;  // 0-1-0
+          
+          let lw;
+          if (STATE.enableLineWidthVar) {
+            lw = flyoverSystem.getLineWidth(1.4, i, numLayers);
+          } else {
+            // 笔刷效果：中间粗 + 边缘细
+            const centerW = STATE.lineWidthCenter;
+            const edgeW = STATE.lineWidthEdge;
+            lw = edgeW + (centerW - edgeW) * brushFactor;
+          }
+          ctx.lineWidth = lw;
+          
+          // 绘制这一段
+          ctx.beginPath();
+          for (let k = startIdx; k <= endIdx; k++) {
+            if (k === startIdx) ctx.moveTo(pts[k].x, pts[k].y);
+            else ctx.lineTo(pts[k].x, pts[k].y);
+          }
+          ctx.stroke();
+        }
+        
+        // 底部填充
+        if (STATE.enableBottomFill && pts.length > 0) {
           ctx.beginPath();
           ctx.moveTo(pts[0].x, pts[0].y);
           for (let k = 1; k < pts.length; k++) {
             ctx.lineTo(pts[k].x, pts[k].y);
           }
-          // 延伸到屏幕底部形成封闭区域
           ctx.lineTo(pts[pts.length - 1].x, height + 100);
           ctx.lineTo(pts[0].x, height + 100);
           ctx.closePath();
           ctx.fillStyle = '#000';
           ctx.fill();
+          
+          // 粒子效果：波峰处添加半透明粒子
+          if (STATE.fillOpacity > 0) {
+            const particleOpacity = STATE.fillOpacity / 100;
+            ctx.fillStyle = `rgba(255, 255, 255, ${particleOpacity * 0.3})`;
+            for (let k = 0; k < pts.length; k += 3) {
+              // 只在波峰附近（bell值高）添加粒子
+              if (pts[k].bell > 0.5) {
+                const px = pts[k].x;
+                const py = pts[k].y;
+                // 在波峰下方添加小点
+                for (let pp = 0; pp < 3; pp++) {
+                  const py2 = py + Math.random() * 20;
+                  const px2 = px + (Math.random() - 0.5) * 6;
+                  const size = 1 + Math.random() * 2;
+                  ctx.beginPath();
+                  ctx.arc(px2, py2, size, 0, Math.PI * 2);
+                  ctx.fill();
+                }
+              }
+            }
+          }
         }
-        
-        ctx.restore();
       }
       
-      // 俯瞰推进的边缘效果
+      // 绘制上下边缘填充（俯瞰推进效果）
       flyoverSystem.draw(ctx, width, height);
     }
     

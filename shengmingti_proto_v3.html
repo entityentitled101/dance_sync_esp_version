@@ -1875,10 +1875,15 @@
       developThreshold: 5000,      // 发展阈值：需要明显的手势才触发 (默认5000)
       climaxThreshold: 5000,       // 高潮阈值：需要强烈的双手互动 (默认5000)
       // 第四章回落监测
-      spiralFadingThreshold: 500,    // 回落阈值：低于此值视为"静止状态"
-      spiralFadingDuration: 5000,    // 回落等待时间：需要持续静止8000ms
+      spiralFadingThreshold: 1000,   // 回落阈值：低于此值视为"静止状态"
+      spiralFadingDuration: 5000,    // 回落等待时间：需要持续静止5秒
       spiralFadingStartTime: null,   // 回落计时开始时间
       spiralFadingTriggered: false,  // 回落已触发标志
+      // 文案缓冲控制
+      textDisplayMinTime: 5000,      // 文案最少显示时间：5秒
+      textCooldownTime: 2500,        // 文案切换冷却时间：2.5秒
+      textLastShownTime: 0,          // 上次文案显示结束时间
+      textIsShowing: false,          // 是否正在显示文案
     };
     
     // ═══════════════════════════════════════════════════
@@ -2961,6 +2966,21 @@
       
       // 只处理进入新阶段的情况，且该阶段未触发过
       if (newSubPhase !== STATE.narrativeSubPhase) {
+        const now = Date.now();
+        const timeSinceLastText = now - STATE.textLastShownTime;
+        const minDisplayTime = STATE.textDisplayMinTime;
+        const cooldownTime = STATE.textCooldownTime;
+        
+        // 检查是否可以切换文案：必须满足最少显示时间 + 冷却时间
+        if (STATE.textIsShowing && timeSinceLastText < minDisplayTime) {
+          // 当前文案还在显示中，不允许切换，保持当前阶段
+          return;
+        }
+        if (timeSinceLastText < minDisplayTime + cooldownTime) {
+          // 冷却时间未满足，不允许切换，保持当前阶段
+          return;
+        }
+        
         STATE.narrativeSubPhase = newSubPhase;
         
         // 清除之前的定时器
@@ -2972,6 +2992,7 @@
         if (newSubPhase === 'developing' && config.textDeveloping && !STATE.narrativeTriggered.developing) {
           // 第一次进入发展部，显示文案
           STATE.narrativeTriggered.developing = true;
+          STATE.textIsShowing = true;
           cnEl.textContent = config.textDeveloping.cn;
           enEl.textContent = config.textDeveloping.en;
           overlay.classList.add('visible');
@@ -2979,23 +3000,30 @@
           // 5秒后自动隐藏
           STATE.narrativeTimer = setTimeout(() => {
             overlay.classList.remove('visible');
-          }, 5000);
+            STATE.textIsShowing = false;
+            STATE.textLastShownTime = Date.now();
+          }, minDisplayTime);
           
         } else if (newSubPhase === 'climax' && config.textClimax && !STATE.narrativeTriggered.climax) {
           // 第一次进入高潮，显示文案
           STATE.narrativeTriggered.climax = true;
+          STATE.textIsShowing = true;
           cnEl.textContent = config.textClimax.cn;
           enEl.textContent = config.textClimax.en;
           overlay.classList.add('visible');
           
-          // 5秒后自动隐藏
+          // 5秒后自动隐藍
           STATE.narrativeTimer = setTimeout(() => {
             overlay.classList.remove('visible');
-          }, 5000);
+            STATE.textIsShowing = false;
+            STATE.textLastShownTime = Date.now();
+          }, minDisplayTime);
           
         } else if (!newSubPhase) {
           // 回到空闲状态，立即隐藏
           overlay.classList.remove('visible');
+          STATE.textIsShowing = false;
+          STATE.textLastShownTime = Date.now();
         }
         // 其他情况（已触发过或没有文案）不做任何操作
       }

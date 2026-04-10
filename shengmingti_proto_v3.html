@@ -2568,7 +2568,7 @@
           // 更新调试显示
           const elEnergy = document.getElementById('debug-energy');
           const elStage = document.getElementById('debug-stage');
-          if (elEnergy) elEnergy.textContent = Math.round(effectiveMainEnergy) + '/' + Math.round(effectiveSubEnergy);
+          if (elEnergy) elEnergy.textContent = Math.round(mainE) + '/' + Math.round(subE);
           if (elStage) elStage.textContent = targetStage;
         }
         
@@ -2581,17 +2581,17 @@
           const developThreshold = STATE.developThreshold;
           const climaxThreshold = STATE.climaxThreshold;
           
-          const effectiveMainEnergy = mainE > motionThreshold ? mainE : 0;
-          const effectiveSubEnergy = subE > motionThreshold ? subE : 0;
-          const effectiveTotal = (effectiveMainEnergy + effectiveSubEnergy) / 2;
+          // 高潮触发逻辑：双手总能量达标即可（不筛选各自能量）
+          const totalEnergy = mainE + subE;
           
           let targetStage = 0;
           
-          if (hasSub && effectiveTotal >= climaxThreshold) {
+          // Stage 3 (高潮/星球环绕)：双手连接 + 总能量 >= 阈值*2
+          if (hasSub && totalEnergy >= climaxThreshold * 2) {
             targetStage = 3;
-          } else if (hasMain && effectiveMainEnergy >= developThreshold) {
+          } else if (hasMain && mainE >= developThreshold) {
             targetStage = 2;
-          } else if (hasMain && effectiveMainEnergy > 0) {
+          } else if (hasMain && mainE > motionThreshold) {
             targetStage = 1;
           }
           
@@ -2613,17 +2613,17 @@
           const developThreshold = STATE.developThreshold;
           const climaxThreshold = STATE.climaxThreshold;
           
-          const effectiveMainEnergy = mainE > motionThreshold ? mainE : 0;
-          const effectiveSubEnergy = subE > motionThreshold ? subE : 0;
-          const effectiveTotal = (effectiveMainEnergy + effectiveSubEnergy) / 2;
+          // 高潮触发逻辑：双手总能量达标即可（不筛选各自能量）
+          const totalEnergy = mainE + subE;
           
           let targetPhase = 1;
           
-          if (hasSub && effectiveTotal >= climaxThreshold) {
+          // Phase 4 (爆发/穿越+粒子)：双手连接 + 总能量 >= 阈值*2
+          if (hasSub && totalEnergy >= climaxThreshold * 2) {
             targetPhase = 4;
-          } else if (hasMain && effectiveMainEnergy >= developThreshold) {
+          } else if (hasMain && mainE >= developThreshold) {
             targetPhase = 3;
-          } else if (hasMain && effectiveMainEnergy > motionThreshold) {
+          } else if (hasMain && mainE > motionThreshold) {
             targetPhase = 2;
           } else if (hasMain) {
             targetPhase = 1;
@@ -2634,7 +2634,7 @@
           // 更新调试显示
           const elEnergy = document.getElementById('debug-energy');
           const elStage = document.getElementById('debug-stage');
-          if (elEnergy) elEnergy.textContent = Math.round(effectiveMainEnergy) + '/' + Math.round(effectiveSubEnergy);
+          if (elEnergy) elEnergy.textContent = Math.round(mainE) + '/' + Math.round(subE);
           if (elStage) elStage.textContent = targetPhase;
         }
         

@@ -112,7 +112,7 @@
       text-transform: uppercase;
     }
     .narrative-cn, .narrative-en {
-      text-shadow: 0 2px 8px rgba(0,0,0,var(--shadow-opacity, 0.3));
+      text-shadow: 0 2px 12px rgba(0,0,0,0.6), 0 4px 20px rgba(0,0,0,0.4);
     }
   </style>
 </head>
@@ -2573,6 +2573,11 @@
           
           this.chapter1.setTargetStage(targetStage);
           
+          // 触发高潮文案（当进入 Stage 3 时）
+          if (targetStage === 3) {
+            showClimaxText();
+          }
+          
           // 更新调试显示
           const elEnergy = document.getElementById('debug-energy');
           const elStage = document.getElementById('debug-stage');
@@ -2608,6 +2613,11 @@
           }
           
           this.chapter2.setTargetStage(targetStage);
+          
+          // 触发高潮文案（当进入 Stage 3 时）
+          if (targetStage === 3) {
+            showClimaxText();
+          }
           
           // 更新调试显示
           const elEnergy = document.getElementById('debug-energy');
@@ -2646,6 +2656,11 @@
           }
           
           this.chapter3.setPhase(targetPhase);
+          
+          // 触发高潮文案（当进入 Phase 4 时）
+          if (targetPhase === 4) {
+            showClimaxText();
+          }
           
           // 更新调试显示
           const elEnergy = document.getElementById('debug-energy');
@@ -3086,6 +3101,35 @@
       cnEl.textContent = cn;
       enEl.textContent = en;
       overlay.classList.add('visible');
+    }
+    
+    // 显示高潮文案（绑定视觉状态三）- 只在进入 Stage 3/Phase 4 时触发
+    function showClimaxText() {
+      const phase = STATE.narrativePhase;
+      const config = CHAPTER_CONFIG[phase];
+      if (!config || !config.textClimax || !config.textClimax.cn) return;
+      
+      // 检查是否已经显示过（避免重复触发）
+      if (STATE.narrativeTriggered.climax) return;
+      
+      STATE.narrativeTriggered.climax = true;
+      STATE.textIsShowing = true;
+      
+      const overlay = document.getElementById('narrative-overlay');
+      const cnEl = overlay.querySelector('.narrative-cn');
+      const enEl = overlay.querySelector('.narrative-en');
+      
+      cnEl.textContent = config.textClimax.cn;
+      enEl.textContent = config.textClimax.en;
+      overlay.classList.add('visible');
+      
+      // 5秒后隐藏
+      if (STATE.narrativeTimer) clearTimeout(STATE.narrativeTimer);
+      STATE.narrativeTimer = setTimeout(() => {
+        overlay.classList.remove('visible');
+        STATE.textIsShowing = false;
+        STATE.textLastShownTime = Date.now();
+      }, 5000);
     }
     
     function hideNarrativeText() {

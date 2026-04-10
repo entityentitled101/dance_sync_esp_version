@@ -218,83 +218,87 @@
     }
     
     // ═══════════════════════════════════════════════════
-    // 绘制第一章：Joy Division 风格（俯瞰推进效果）
+    // 绘制第一章：Joy Division 风格（参考VerD实现）
     // ═══════════════════════════════════════════════════
     function drawChapter1(ctx, cx, cy, width, height) {
       const P = STATE.morphProgress;
       const numLayers = Math.floor(1 + P * 29);
       
-      // 线条延伸到屏幕边缘
-      const lineLength = width * 0.95;
+      // 视图参数（参考VerD）
+      const viewW = width * 0.95;
+      const viewH = height * 0.6;
+      const spacingY = viewH / 30;  // 固定间距，像VerD一样
+      const elev = cy + height * 0.1;  // 基准高度
       
-      // 基准线位置（屏幕中央偏下）
-      const baseY = cy + 100;
-      
-      // 动态层间距：能量越高，间距越大（中间黑色区域变大）
-      // P=0时 spacing=8, P=1时 spacing=16
-      const baseSpacing = 8 + P * 8;
-      
-      // 从底部（后景）向顶部（前景）绘制
-      for (let i = 0; i < numLayers; i++) {
-        // 计算当前层的实际间距（可变的）
-        const currentSpacing = baseSpacing * (1 + Math.sin(i * 0.2) * 0.3);
+      // 从远到近绘制（参考VerD：i=0最远，i=大最近）
+      for (let i = numLayers - 1; i >= 0; i--) {
+        const normZ = i / (numLayers - 1 || 1);  // 0=最远，1=最近
         
-        // 应用俯瞰推进的Y偏移
-        const rawY = baseY - i * currentSpacing;
-        const y = flyoverSystem.getYOffset(rawY, i, numLayers);
+        // Y位置：从屏幕下方往上方排列（像VerD）
+        const baseY = elev - i * spacingY;
+        const y = flyoverSystem.getYOffset(baseY, i, numLayers);
         
-        // 计算透明度：前景(后面i)亮，后景(前面i)暗
-        const ratio = i / (numLayers - 1 || 1);
-        const alpha = 0.1 + ratio * 0.9;
+        // 深度渐变（参考VerD的zFade）
+        const alpha = 0.3 + normZ * 0.7;
         
-        // 保存上下文
         ctx.save();
-        
-        // 设置样式（应用俯瞰推进的线条粗细变化）
         ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
         ctx.lineWidth = flyoverSystem.getLineWidth(1.4, i, numLayers);
-        ctx.lineCap = 'round';
         
-        // 绘制波形路径
+        // 绘制波形
+        const points = 140;
+        const startX = (width - viewW) / 2;
+        const pts = [];  // 存储点用于填充
+        
         ctx.beginPath();
-        const points = 150;
-        const startX = (width - lineLength) / 2;
-        
         for (let p = 0; p <= points; p++) {
           const progress = p / points;
-          const x = startX + progress * lineLength;
-          
-          // 钟形包络：能量越高，波峰越集中在中间
-          // P=0时 bellWidth=5（分散），P=1时 bellWidth=3（集中）
+          const x = startX + progress * viewW;
           const nx = progress - 0.5;
-          const bellWidth = 5 - P * 2;  // 5→3
-          const bell = Math.exp(-Math.pow(nx * bellWidth, 2));
           
-          // 噪声波形（加入滚动偏移）
+          // 钟形包络（参考VerD：dx * 7）
+          let bell = Math.exp(-Math.pow(nx * 7, 2));
+          if (Math.abs(nx) >= 0.45) bell = 0;  // 两端裁切
+          
+          // 多层噪声（参考VerD）
           const t = STATE.wavePhase + flyoverSystem.scrollOffset * 0.01;
-          const noise = Math.sin(p * 0.15 + t + i * 0.3) + Math.cos(p * 0.35 - t * 0.6 + i * 0.2) * 0.5;
+          const noise1 = Math.sin(p * 0.2 + t * 1.5 + i * 0.3);
+          const noise2 = Math.cos(p * 0.45 - t * 0.8 - i * 0.5) * 0.5;
+          const noise3 = Math.sin(p * 1.1 + t * 0.5 + i * 1.2) * 0.25;
+          const ridge = Math.abs(noise1 + noise2 + noise3);
           
-          // 振幅：能量越高，波峰越高且越集中在中间
-          // baseAmp: P=0时15, P=1时70（波峰更高）
-          const baseAmp = 15 + P * 55;
-          // 深度影响：前景更大
-          const depthAmp = 0.4 + ratio * 0.6;
-          // 集中度：P越高，边缘衰减越快
-          const concentration = 1 + P * 0.5;
-          const amp = Math.abs(noise) * baseAmp * Math.pow(bell, concentration) * depthAmp;
+          // 振幅（参考VerD风格）
+          const baseAmp = 20 + P * 35;  // 基础振幅
+          const depthAmp = 0.5 + normZ * 0.5;  // 前景更大
+          const amp = ridge * baseAmp * bell * depthAmp;
           
           const py = y - amp;
+          pts.push({x, y: py});
           
           if (p === 0) ctx.moveTo(x, py);
           else ctx.lineTo(x, py);
         }
-        
-        // 只描边，不填充
         ctx.stroke();
+        
+        // 底部填充（关键！参考VerD 1576-1577行）
+        if (pts.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let k = 1; k < pts.length; k++) {
+            ctx.lineTo(pts[k].x, pts[k].y);
+          }
+          // 延伸到屏幕底部形成封闭区域
+          ctx.lineTo(pts[pts.length - 1].x, height + 100);
+          ctx.lineTo(pts[0].x, height + 100);
+          ctx.closePath();
+          ctx.fillStyle = '#000';
+          ctx.fill();
+        }
+        
         ctx.restore();
       }
       
-      // 绘制上下边缘填充（俯瞰推进效果）
+      // 俯瞰推进的边缘效果
       flyoverSystem.draw(ctx, width, height);
     }
     

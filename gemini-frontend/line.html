@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流动的线形 - 乐章形变</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000000;
+            color: #ffffff;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            user-select: none;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+        #ui-container {
+            position: absolute;
+            bottom: 40px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            pointer-events: none;
+        }
+        .btn {
+            pointer-events: auto;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 12px 24px;
+            font-size: 14px;
+            letter-spacing: 2px;
+            cursor: pointer;
+            border-radius: 30px;
+            transition: all 0.4s ease;
+            backdrop-filter: blur(4px);
+        }
+        .btn:hover {
+            color: #ffffff;
+            border-color: #ffffff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .btn.active {
+            color: #000000;
+            background: #ffffff;
+            border-color: #ffffff;
+            font-weight: bold;
+        }
+        #title {
+            position: absolute;
+            top: 40px;
+            left: 40px;
+            font-weight: 300;
+            letter-spacing: 4px;
+            font-size: 18px;
+            opacity: 0.8;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="title">LINE MORPHING</div>
+    <div id="canvas-container"></div>
+
+    <div id="ui-container">
+        <button class="btn active" onclick="setStage(0)" id="btn-0">原初 (纯平)</button>
+        <button class="btn" onclick="setStage(1)" id="btn-1">原初 (脉冲)</button>
+        <button class="btn" onclick="setStage(2)" id="btn-2">发展部 (II)</button>
+        <button class="btn" onclick="setStage(3)" id="btn-3">高潮部 (III)</button>
+    </div>
+
+    <script>
+        // =======================================================
+        // 核心配置中心
+        // =======================================================
+        const CONFIG = {
+            ISLAND_THICKNESS: 1.2, // 浮空岛的厚度 (已从2.5减半，你可以随时调整)
+            ORBIT_RADIUS_MIN: 32,  // 最小轨道半径 (足够包裹整个岛屿，制造前景/后景错落感)
+            ORBIT_RADIUS_MAX: 48   // 最大轨道半径
+        };
+
+        let scene, camera, renderer;
+        let clock;
+        let mainGroup, celestialGroup;
+        
+        const numLines = 65;   
+        const numPoints = 160; 
+        const linesData = [];  
+
+        let celestials = [];
+        let baseBoxGroup, baseBoxGeo, baseBoxLines, baseBoxSolid;
+
+        const params = {
+            width: 90,          
+            spreadZ: 0,         
+            noiseScale: 0.2,    
+            noiseAmplitude: 0.0,
+            pulseIntensity: 0.0,
+            centerFocus: 0,     
+            islandMask: 0,      
+            cliffBottom: 0,     
+            ridgeEffect: 0,     
+            cameraTiltX: 0.05,  
+            rotY: 0,            
+            autoRotate: false,
+            celestialAlpha: 0,  
+            baseYOffset: 0      
+        };
+
+        const stages = [
+            { width: 90, spreadZ: 0, noiseScale: 0.2, noiseAmplitude: 0.0, pulseIntensity: 0.0, centerFocus: 0, islandMask: 0.0, cliffBottom: 0, ridgeEffect: 0, cameraTiltX: 0.05, rotY: 0, autoRotate: false, celestialAlpha: 0, baseYOffset: 0 },
+            { width: 90, spreadZ: 0, noiseScale: 0.2, noiseAmplitude: 0.0, pulseIntensity: 1.0, centerFocus: 0, islandMask: 0.0, cliffBottom: 0, ridgeEffect: 0, cameraTiltX: 0.05, rotY: 0, autoRotate: false, celestialAlpha: 0, baseYOffset: 0 },
+            { width: 45, spreadZ: 38, noiseScale: 0.6, noiseAmplitude: 6.5, pulseIntensity: 0.0, centerFocus: 1.0, islandMask: 0.0, cliffBottom: 0.0, ridgeEffect: 1.0, cameraTiltX: 0.55, rotY: 0, autoRotate: false, celestialAlpha: 0, baseYOffset: 2 },
+            { width: 45, spreadZ: 42, noiseScale: 0.7, noiseAmplitude: 7.0, pulseIntensity: 0.0, centerFocus: 1.0, islandMask: 1.0, cliffBottom: 1.0, ridgeEffect: 0.8, cameraTiltX: 0.35, rotY: Math.PI / 5, autoRotate: true, celestialAlpha: 1.0, baseYOffset: 10 }
+        ];
+
+        let targetStage = 0;
+
+        init();
+        animate();
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+            camera.position.set(0, 10, 65);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            clock = new THREE.Clock();
+
+            mainGroup = new THREE.Group();
+            scene.add(mainGroup);
+
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+            const meshMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x000000, 
+                side: THREE.DoubleSide,
+                depthWrite: true,
+                polygonOffset: true, 
+                polygonOffsetFactor: 1, 
+                polygonOffsetUnits: 1 
+            });
+
+            for (let i = 0; i < numLines; i++) {
+                const lineGeom = new THREE.BufferGeometry();
+                const linePositions = new Float32Array(numPoints * 3);
+                lineGeom.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+                const line = new THREE.Line(lineGeom, lineMaterial);
+
+                const meshGeom = new THREE.BufferGeometry();
+                const meshPositions = new Float32Array(numPoints * 2 * 3); 
+                const indices = [];
+                for (let j = 0; j < numPoints - 1; j++) {
+                    const top1 = j * 2;
+                    const bot1 = j * 2 + 1;
+                    const top2 = (j + 1) * 2;
+                    const bot2 = (j + 1) * 2 + 1;
+                    indices.push(top1, bot1, top2);
+                    indices.push(bot1, bot2, top2);
+                }
+                meshGeom.setAttribute('position', new THREE.BufferAttribute(meshPositions, 3));
+                meshGeom.setIndex(indices);
+                const mesh = new THREE.Mesh(meshGeom, meshMaterial);
+
+                mainGroup.add(mesh);
+                mainGroup.add(line);
+                linesData.push({ lineGeom, meshGeom });
+            }
+
+            // --- 极简几何厚度底座构建 ---
+            baseBoxGroup = new THREE.Group();
+            baseBoxGeo = new THREE.BufferGeometry();
+            const boxPos = new Float32Array(8 * 3);
+            baseBoxGeo.setAttribute('position', new THREE.BufferAttribute(boxPos, 3));
+            
+            baseBoxGeo.setIndex([
+                0,1, 1,2, 2,3, 3,0, // 底部四边
+                4,5, 5,6, 6,7, 7,4, // 顶部四边 
+                0,4, 1,5, 2,6, 3,7  // 四周垂线
+            ]);
+            baseBoxLines = new THREE.LineSegments(baseBoxGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }));
+            
+            const solidGeo = new THREE.BufferGeometry();
+            solidGeo.setAttribute('position', new THREE.BufferAttribute(boxPos, 3));
+            solidGeo.setIndex([
+                0,1,5, 0,5,4, 
+                1,2,6, 1,6,5, 
+                2,3,7, 2,7,6, 
+                3,0,4, 3,4,7, 
+                3,2,1, 3,1,0  
+            ]);
+            baseBoxSolid = new THREE.Mesh(solidGeo, new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 4 }));
+            
+            baseBoxGroup.add(baseBoxLines);
+            baseBoxGroup.add(baseBoxSolid);
+            mainGroup.add(baseBoxGroup);
+
+            // --- 宇宙中心：绕岛穿梭的星体轨道组 ---
+            celestialGroup = new THREE.Group();
+            // 核心修改：将轨道组放入岛屿的主系统系中，使它们与岛屿同生共死，共享 3D 倾角！
+            mainGroup.add(celestialGroup);
+            celestialGroup.position.y = -CONFIG.ISLAND_THICKNESS / 2;
+
+            // 关闭星体的 depthWrite，彻底防止透明材质排序导致的“切割断裂”现象
+            const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
+
+            const geo1 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(1.6, 10, 10)), mat.clone());
+            const geo2 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.CylinderGeometry(1.2, 1.2, 2.0, 10, 3)), mat.clone());
+            const geo3 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.TetrahedronGeometry(1.8)), mat.clone());
+            const geo4 = new THREE.Group();
+            const mainBox = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.BoxGeometry(1.5, 1.5, 1.5, 2, 2, 2)), mat.clone());
+            const earGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5, 1, 1, 1);
+            const ear1 = new THREE.LineSegments(new THREE.WireframeGeometry(earGeo), mat.clone()); ear1.position.set(1.1, 0, 0);
+            const ear2 = new THREE.LineSegments(new THREE.WireframeGeometry(earGeo), mat.clone()); ear2.position.set(-1.1, 0, 0);
+            geo4.add(mainBox, ear1, ear2);
+            const geo5 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.OctahedronGeometry(1.6)), mat.clone());
+            const geo6 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(1.5)), mat.clone());
+
+            const celestialMeshes = [geo1, geo2, geo3, geo4, geo5, geo6];
+
+            for(let i=0; i<6; i++) {
+                const orbitGroup = new THREE.Group();
+                const radius = CONFIG.ORBIT_RADIUS_MIN + Math.random() * (CONFIG.ORBIT_RADIUS_MAX - CONFIG.ORBIT_RADIUS_MIN); 
+                const speed = (0.08 + Math.random() * 0.15) * (i % 2 === 0 ? 1 : -1); 
+                const phase = Math.random() * Math.PI * 2;
+                
+                orbitGroup.rotation.x = (Math.random() - 0.5) * 0.8;
+                orbitGroup.rotation.z = (Math.random() - 0.5) * 0.8;
+
+                const trailGeo = new THREE.BufferGeometry();
+                const trailPts = [];
+                const segments = 64;
+                for(let j=0; j<=segments; j++) {
+                    const a = (j/segments) * Math.PI * 2;
+                    trailPts.push(Math.cos(a)*radius, 0, Math.sin(a)*radius);
+                }
+                trailGeo.setAttribute('position', new THREE.Float32BufferAttribute(trailPts, 3));
+                // 虚空轨道也关闭 depthWrite 确保清爽
+                const trailLine = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({color: 0xffffff, transparent: true, opacity: 0, depthWrite: false}));
+                orbitGroup.add(trailLine);
+
+                orbitGroup.add(celestialMeshes[i]);
+                celestialGroup.add(orbitGroup);
+                celestials.push({ orbitGroup, mesh: celestialMeshes[i], trailLine, radius, speed, phase });
+            }
+
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function fbm(x, z, t, scale) {
+            let y = 0;
+            y += Math.sin(x * scale * 1.0 + t * 1.2) * Math.cos(z * scale * 1.0 + t * 0.8) * 1.0;
+            y += Math.sin(x * scale * 2.1 - t * 1.5) * Math.cos(z * scale * 2.1 + t * 1.1) * 0.5;
+            y += Math.sin(x * scale * 3.7 + t * 2.0) * Math.cos(z * scale * 3.7 - t * 0.9) * 0.25;
+            return y;
+        }
+
+        function setStage(index) {
+            targetStage = index;
+            document.querySelectorAll('.btn').forEach((btn, i) => {
+                if(i === index) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = clock.getElapsedTime();
+            const dt = 0.04; 
+
+            const target = stages[targetStage];
+            params.width += (target.width - params.width) * dt;
+            params.spreadZ += (target.spreadZ - params.spreadZ) * dt;
+            params.noiseScale += (target.noiseScale - params.noiseScale) * dt;
+            params.noiseAmplitude += (target.noiseAmplitude - params.noiseAmplitude) * dt;
+            params.pulseIntensity += (target.pulseIntensity - params.pulseIntensity) * dt;
+            params.centerFocus += (target.centerFocus - params.centerFocus) * dt;
+            params.islandMask += (target.islandMask - params.islandMask) * dt;
+            params.cliffBottom += (target.cliffBottom - params.cliffBottom) * dt;
+            params.ridgeEffect += (target.ridgeEffect - params.ridgeEffect) * dt;
+            params.cameraTiltX += (target.cameraTiltX - params.cameraTiltX) * dt;
+            params.celestialAlpha += (target.celestialAlpha - params.celestialAlpha) * dt;
+            params.baseYOffset += (target.baseYOffset - params.baseYOffset) * dt;
+
+            if (target.autoRotate) {
+                params.rotY += 0.0015; 
+            } else {
+                params.rotY += (target.rotY - params.rotY) * dt;
+            }
+
+            mainGroup.rotation.x = params.cameraTiltX;
+            mainGroup.rotation.y = params.rotY;
+            mainGroup.position.y = params.baseYOffset;
+
+            const pulsePos = Math.sin(time * 1.5) * 0.45;
+
+            const getTerrainY = (nX, nZ) => {
+                const x = nX * params.width;
+                const z = nZ * params.spreadZ;
+                const rawNoise = fbm(x, z, time, params.noiseScale);
+                const blendedNoise = rawNoise * (1 - params.ridgeEffect) + Math.abs(rawNoise) * params.ridgeEffect;
+                const bellX = Math.exp(-Math.pow(nX * 6, 2));
+                const bellZ = Math.exp(-Math.pow(nZ * 6, 2));
+                const currentZMask = 1.0 * (1 - params.islandMask) + bellZ * params.islandMask;
+                const finalMask = 1.0 * (1 - params.centerFocus) + (bellX * currentZMask) * params.centerFocus;
+                return blendedNoise * params.noiseAmplitude * finalMask;
+            };
+
+            // 1. 更新立方体底座 (防裁切升级)
+            if (params.cliffBottom > 0.01) {
+                baseBoxGroup.visible = true;
+                baseBoxLines.material.opacity = params.cliffBottom * 0.9; 
+                baseBoxSolid.material.transparent = true;
+                baseBoxSolid.material.opacity = params.cliffBottom;
+
+                const pos = baseBoxGeo.attributes.position.array;
+                // 核心防穿插逻辑：将盒子整体扩大 0.05，确保完全吞没内层地形边界，解决边缘黑线
+                const bW = (params.width / 2) + 0.05; 
+                const bZ = (params.spreadZ / 2) + 0.05;
+                const topY = 0; 
+                const bottomY = -CONFIG.ISLAND_THICKNESS; 
+
+                pos[0]= -bW; pos[1]= bottomY; pos[2]= -bZ;
+                pos[3]= bW;  pos[4]= bottomY; pos[5]= -bZ;
+                pos[6]= bW;  pos[7]= bottomY; pos[8]= bZ;
+                pos[9]= -bW; pos[10]= bottomY; pos[11]= bZ;
+
+                pos[12]= -bW; pos[13]= topY; pos[14]= -bZ;
+                pos[15]= bW;  pos[16]= topY; pos[17]= -bZ;
+                pos[18]= bW;  pos[19]= topY; pos[20]= bZ;
+                pos[21]= -bW; pos[22]= topY; pos[23]= bZ;
+
+                baseBoxGeo.attributes.position.needsUpdate = true;
+            } else {
+                baseBoxGroup.visible = false;
+            }
+
+            // 2. 更新地形线条
+            for (let i = 0; i < numLines; i++) {
+                const nZ = (i / (numLines - 1)) - 0.5; 
+                const z = nZ * params.spreadZ;
+                const linePos = linesData[i].lineGeom.attributes.position.array;
+                const meshPos = linesData[i].meshGeom.attributes.position.array;
+
+                for (let j = 0; j < numPoints; j++) {
+                    const nX = (j / (numPoints - 1)) - 0.5; 
+                    const x = nX * params.width;
+
+                    const yBase = getTerrainY(nX, nZ);
+                    const distToPulse = Math.abs(nX - pulsePos);
+                    const rhythm = 1.0 + Math.sin(time * 8.0) * 0.3; 
+                    const pulseBase = Math.exp(-Math.pow(distToPulse * 15, 2)) * 3.0;
+                    const pulseEnvelope = Math.exp(-Math.pow(distToPulse * 25, 2));
+                    const wiggle = Math.abs(Math.sin(distToPulse * 30 - time * 15)) * 2.5;
+                    const y = yBase + ((pulseBase + wiggle * pulseEnvelope) * rhythm * params.pulseIntensity);
+
+                    // 核心防穿插逻辑：地形遮罩严格限制在底座之内 (-CONFIG.ISLAND_THICKNESS + 0.05)
+                    const skirtBottom = -CONFIG.ISLAND_THICKNESS + 0.05;
+                    const finalBottomY = -15 * (1 - params.cliffBottom) + skirtBottom * params.cliffBottom;
+
+                    linePos[j * 3] = x;
+                    linePos[j * 3 + 1] = y;
+                    linePos[j * 3 + 2] = z;
+
+                    meshPos[j * 6] = x;
+                    meshPos[j * 6 + 1] = y;
+                    meshPos[j * 6 + 2] = z;
+                    meshPos[j * 6 + 3] = x;
+                    meshPos[j * 6 + 4] = finalBottomY; 
+                    meshPos[j * 6 + 5] = z;
+                }
+                linesData[i].lineGeom.attributes.position.needsUpdate = true;
+                linesData[i].meshGeom.attributes.position.needsUpdate = true;
+            }
+
+            // 3. 更新宇宙中心的轨道群组
+            if (params.celestialAlpha > 0.01) {
+                // 轨道系统相对于大陆板块独立自转，加强空间纵深交错感
+                celestialGroup.rotation.y -= 0.002; 
+
+                celestials.forEach(c => {
+                    c.orbitGroup.visible = true;
+                    // 弱化样式：轨道降低到 0.12，星体降低到 0.5，为主体大陆让步
+                    c.trailLine.material.opacity = params.celestialAlpha * 0.12; 
+                    c.mesh.traverse((child) => {
+                        if (child.isLineSegments) {
+                            child.material.opacity = params.celestialAlpha * 0.5; 
+                        }
+                    });
+                    
+                    const t = time * c.speed + c.phase;
+                    c.mesh.position.x = Math.cos(t) * c.radius;
+                    c.mesh.position.z = Math.sin(t) * c.radius;
+                    
+                    c.mesh.rotation.y += 0.01;
+                    c.mesh.rotation.x += 0.015;
+                });
+            } else {
+                celestials.forEach(c => c.orbitGroup.visible = false);
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>

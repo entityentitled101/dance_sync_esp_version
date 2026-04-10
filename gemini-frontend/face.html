@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>点线面 - 几何交响曲 (张力重构版)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            user-select: none;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        #ui-container {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 30px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+
+        button {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.6);
+            padding: 10px 20px;
+            font-size: 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            border-color: #fff;
+            color: #fff;
+        }
+
+        button.active {
+            background: #fff;
+            color: #000;
+            font-weight: bold;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+        }
+
+        #hint {
+            position: absolute;
+            top: 30px;
+            width: 100%;
+            text-align: center;
+            font-size: 13px;
+            letter-spacing: 3px;
+            color: rgba(255, 255, 255, 0.5);
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+    <!-- 引入 Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- 引入 GSAP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+</head>
+<body>
+
+    <div id="hint">序列初始化中...</div>
+    <div id="canvas-container"></div>
+    
+    <div id="ui-container">
+        <button id="btn-phase1" class="active" onclick="setPhase(1)">I. 呈示 (面)</button>
+        <button id="btn-phase2" onclick="setPhase(2)">II. 展开 (九宫)</button>
+        <button id="btn-phase3" onclick="setPhase(3)">III. 高潮 (自转)</button>
+        <button id="btn-phase4" onclick="setPhase(4)">IV. 爆发 (穿梭)</button>
+    </div>
+
+    <script>
+        // === 1. 场景与相机基础设置 ===
+        const scene = new THREE.Scene();
+        // 极深邃的背景雾化
+        scene.fog = new THREE.FogExp2(0x000000, 0.02);
+
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.autoRotate = false; // 由自定义动画接管旋转
+
+        // === 2. 构建环境网格 (类似 Blender 地板) ===
+        // 创建一个庞大的坐标网格，用于初始的“空无一物”感以及高潮的“穿梭”感
+        const gridGroup = new THREE.Group();
+        const gridHelper = new THREE.GridHelper(100, 50, 0x666666, 0x222222);
+        gridHelper.position.y = -2;
+        gridHelper.material.transparent = true;
+        gridHelper.material.opacity = 1.0;
+        gridGroup.add(gridHelper);
+        
+        // 天花板网格 (高潮时开启)
+        const topGridHelper = new THREE.GridHelper(100, 50, 0x666666, 0x222222);
+        topGridHelper.position.y = 2;
+        topGridHelper.material.transparent = true;
+        topGridHelper.material.opacity = 0; // 默认隐藏
+        gridGroup.add(topGridHelper);
+        
+        // --- 新增：高潮使用的穿梭网格门 (Warp Gates 穿膜效果) ---
+        const warpGates = [];
+        for (let i = 0; i < 5; i++) {
+            const gate = new THREE.GridHelper(40, 20, 0x888888, 0x333333);
+            gate.rotation.x = Math.PI / 2; // 竖立面向镜头
+            gate.position.z = -10 - i * 12; // 在Z轴深处排布
+            gate.visible = false;
+            gate.material.transparent = true; // 【修改】确保开启透明度以支持淡入淡出
+            gate.material.opacity = 0;
+            warpGates.push(gate);
+            gridGroup.add(gate);
+        }
+
+        scene.add(gridGroup);
+
+        // === 3. 构建核心几何体 (魔方与切片) ===
+        const cubes = []; 
+        const size = 0.95; 
+        const spacing = 1.0; 
+        const mainGroup = new THREE.Group();
+        scene.add(mainGroup);
+
+        const pivot = new THREE.Group();
+        mainGroup.add(pivot);
+
+        const geometry = new THREE.BoxGeometry(size, size, size);
+        const edgesGeo = new THREE.EdgesGeometry(geometry);
+
+        for (let x = -1; x <= 1; x++) {
+            for (let y = -1; y <= 1; y++) {
+                for (let z = -1; z <= 1; z++) {
+                    const wrapper = new THREE.Group();
+                    
+                    // 黑底实心填充 (遮挡后方线条，硬朗感来源)
+                    const meshMat = new THREE.MeshBasicMaterial({ 
+                        color: 0x000000, 
+                        side: THREE.DoubleSide
+                    });
+                    const solidMesh = new THREE.Mesh(geometry, meshMat);
+                    
+                    // 纯白边框线
+                    const lineMat = new THREE.LineBasicMaterial({ 
+                        color: 0xffffff, 
+                        linewidth: 2 
+                    });
+                    const edgeLines = new THREE.LineSegments(edgesGeo, lineMat);
+                    
+                    solidMesh.add(edgeLines);
+                    wrapper.add(solidMesh);
+                    
+                    // 记录逻辑与状态
+                    wrapper.userData = { 
+                        initX: x, initY: y, initZ: z, 
+                        solidMesh: solidMesh 
+                    };
+                    
+                    wrapper.position.set(x * spacing, y * spacing, z * spacing);
+                    wrapper.scale.set(0, 0, 0); // 初始全隐藏
+                    
+                    mainGroup.add(wrapper);
+                    cubes.push(wrapper);
+                }
+            }
+        }
+
+        // === 4. 构建粒子喷射系统 (高潮使用) ===
+        const particleCount = 60;
+        const particles = [];
+        const pGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2); // 更大的立体碎块
+        const pEdgesGeo = new THREE.EdgesGeometry(pGeo);
+        
+        // 碎块和主体完全一致的视觉：黑底实心 + 白边框
+        const pMeshMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const pLineMat = new THREE.LineBasicMaterial({ color: 0xffffff });
+        
+        for(let i=0; i<particleCount; i++) {
+            const pGroup = new THREE.Group();
+            const pMesh = new THREE.Mesh(pGeo, pMeshMat);
+            const pLines = new THREE.LineSegments(pEdgesGeo, pLineMat);
+            pMesh.add(pLines);
+            pGroup.add(pMesh);
+            
+            pGroup.userData = {
+                velocity: new THREE.Vector3(),
+                rotSpeed: new THREE.Vector3(Math.random()*0.3, Math.random()*0.3, Math.random()*0.3),
+                active: false
+            };
+            pGroup.visible = false;
+            particles.push(pGroup);
+            scene.add(pGroup);
+        }
+
+        function burstParticle(p) {
+            // 从中心稍微偏外的位置引爆，避免都卡在死角
+            const radius = 1.0;
+            p.position.set(
+                (Math.random()-0.5) * radius,
+                (Math.random()-0.5) * radius,
+                (Math.random()-0.5) * radius
+            );
+            // 核心动势：向四周炸开，并强力扑向镜头 (正Z方向极大)
+            p.userData.velocity.set(
+                (Math.random() - 0.5) * 1.5,
+                (Math.random() - 0.5) * 1.5,
+                Math.random() * 0.8 + 0.5 // 朝镜头高速飞来
+            );
+            // 【新增】生命周期控制 (从 0.0 走到 1.0)
+            p.userData.life = 0;
+            p.userData.lifeStep = 0.01 + Math.random() * 0.02; // 寿命衰减/流逝的速度
+            p.visible = true;
+            p.userData.active = true;
+        }
+
+        // === 5. 核心状态与叙事控制 ===
+        let currentPhase = 0;
+        let isTwisting = false;
+        // 【关键修复】将 globalSpeed 包装到独立对象中，让 GSAP 能够正确接管数值过渡
+        const animState = { globalSpeed: 0 }; 
+        const clock = new THREE.Clock();
+
+        function updateUI(phase) {
+            document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            document.getElementById(`btn-phase${phase}`).classList.add('active');
+            
+            const hintText = {
+                1: "I. 呈示部：聚焦原初之面",
+                2: "II. 展开部：维度扩充为九",
+                3: "III. 高潮一阶：魔方重构与空间自转",
+                4: "IV. 高潮二阶：全维爆发与星际穿梭"
+            };
+            document.getElementById('hint').innerText = hintText[phase];
+        }
+
+        function setPhase(phase) {
+            if (currentPhase === phase) return;
+            currentPhase = phase;
+            updateUI(phase);
+
+            // 终止正在进行的魔方扭动，强制还原 (仅当回到1或2阶段时)
+            if (phase < 3) {
+                isTwisting = false;
+            }
+            
+            if (phase === 1) triggerPhase1();
+            if (phase === 2) triggerPhase2();
+            if (phase === 3) triggerPhase3();
+            if (phase === 4) triggerPhase4();
+        }
+
+        // --- 剧情一：呈示部 (1个面，聚焦) ---
+        function triggerPhase1() {
+            gsap.to(animState, { globalSpeed: 0, duration: 2 }); // 停止飞船穿梭
+            
+            // 镜头从高远视角猛地推近
+            gsap.to(camera.position, { x: 0, y: 0, z: 2.5, duration: 2.5, ease: "power3.inOut" });
+            
+            // 地板网格隐去，产生一种失重悬浮感
+            gsap.to(gridHelper.material, { opacity: 0, duration: 2 });
+            gsap.to(topGridHelper.material, { opacity: 0, duration: 2 });
+            
+            // 平滑隐去穿梭门
+            warpGates.forEach(gate => {
+                gsap.to(gate.material, { opacity: 0, duration: 1, onComplete: () => gate.visible = false });
+            });
+
+            particles.forEach(p => p.visible = false); // 关闭粒子碎块
+
+            cubes.forEach(wrapper => {
+                gsap.killTweensOf(wrapper.scale);
+                gsap.killTweensOf(wrapper.position);
+                gsap.killTweensOf(wrapper.quaternion);
+
+                // 还原旋转
+                wrapper.quaternion.identity();
+                wrapper.position.set(wrapper.userData.initX * spacing, wrapper.userData.initY * spacing, wrapper.userData.initZ * spacing);
+                
+                // 恢复纯黑底色，关闭闪烁
+                wrapper.userData.solidMesh.material.color.setHex(0x000000);
+                wrapper.userData.solidMesh.visible = true;
+
+                // 只有最中心的一块 (0,0,0) 显示，且被压缩成面
+                if (wrapper.userData.initX === 0 && wrapper.userData.initY === 0 && wrapper.userData.initZ === 0) {
+                    gsap.to(wrapper.scale, { x: 1, y: 1, z: 0.01, duration: 1.5, ease: "back.out(1.2)" });
+                } else {
+                    gsap.to(wrapper.scale, { x: 0, y: 0, z: 0, duration: 1 });
+                }
+            });
+            
+            // 主体回归正向及重置颠簸震动
+            gsap.to(mainGroup.rotation, { x: 0, y: 0, z: 0, duration: 2 });
+            gsap.to(mainGroup.position, { x: 0, y: 0, duration: 1 });
+        }
+
+        // --- 剧情二：展开部 (9个面，微波) ---
+        function triggerPhase2() {
+            gsap.to(animState, { globalSpeed: 0, duration: 2 }); 
+            
+            // 镜头拉远至中景，略微倾斜观察面
+            gsap.to(camera.position, { x: 1.5, y: -1.5, z: 4.5, duration: 2.5, ease: "power2.inOut" });
+            gsap.to(gridHelper.material, { opacity: 0, duration: 1 });
+            gsap.to(topGridHelper.material, { opacity: 0, duration: 1 });
+            
+            // 平滑隐去穿梭门
+            warpGates.forEach(gate => {
+                gsap.to(gate.material, { opacity: 0, duration: 1, onComplete: () => gate.visible = false });
+            });
+            
+            particles.forEach(p => p.visible = false);
+
+            cubes.forEach(wrapper => {
+                gsap.killTweensOf(wrapper.scale);
+                gsap.killTweensOf(wrapper.position);
+                gsap.killTweensOf(wrapper.quaternion);
+
+                wrapper.quaternion.identity();
+                wrapper.position.set(wrapper.userData.initX * spacing, wrapper.userData.initY * spacing, wrapper.userData.initZ * spacing);
+                wrapper.userData.solidMesh.material.color.setHex(0x000000);
+                wrapper.userData.solidMesh.visible = true;
+
+                // 位于 Z=0 的 9 个面展开
+                if (wrapper.userData.initZ === 0) {
+                    // 加入一点阶梯式的延迟展开 (Stagger)
+                    const delay = (Math.abs(wrapper.userData.initX) + Math.abs(wrapper.userData.initY)) * 0.1;
+                    gsap.to(wrapper.scale, { x: 1, y: 1, z: 0.01, duration: 1.5, delay: delay, ease: "back.out(1.5)" });
+                } else {
+                    gsap.to(wrapper.scale, { x: 0, y: 0, z: 0, duration: 1 });
+                }
+            });
+
+            gsap.to(mainGroup.rotation, { x: 0, y: 0, z: 0, duration: 2 });
+            gsap.to(mainGroup.position, { x: 0, y: 0, duration: 1 });
+        }
+
+        // --- 剧情三：高潮部一阶 (27个魔方，自转无穿梭) ---
+        function triggerPhase3() {
+            // 停止星际穿越速度
+            gsap.to(animState, { globalSpeed: 0.0, duration: 2, ease: "power2.out" });
+            
+            // 镜头拉入深空视角
+            gsap.to(camera.position, { x: 4, y: 3, z: 6, duration: 3, ease: "power2.inOut" });
+            
+            // 【修改】穿梭网格不隐去，保留30%透明度的安静场域网格显示
+            gsap.to(gridHelper.material, { opacity: 0.3, duration: 2 });
+            gsap.to(topGridHelper.material, { opacity: 0.3, duration: 2 });
+
+            // 平滑隐去穿梭门
+            warpGates.forEach((gate) => {
+                gsap.to(gate.material, { opacity: 0, duration: 1.5, onComplete: () => gate.visible = false });
+            });
+
+            // 所有 27 块体爆发 (如果从1,2阶段过来)
+            cubes.forEach(wrapper => {
+                const delay = Math.random() * 0.5;
+                gsap.to(wrapper.scale, { x: 1, y: 1, z: 1, duration: 1.2, delay: delay, ease: "elastic.out(1, 0.5)" });
+            });
+
+            // 关闭粒子碎片喷射
+            particles.forEach(p => p.visible = false);
+
+            // 重置颠簸震动
+            gsap.to(mainGroup.position, { x: 0, y: 0, duration: 1 });
+
+            // 延迟一点启动魔方自扭
+            setTimeout(() => { if (!isTwisting && (currentPhase === 3 || currentPhase === 4)) twistRandomLayer(); }, 1500);
+        }
+
+        // --- 剧情四：高潮部二阶 (狂暴穿梭与粒子爆发) ---
+        function triggerPhase4() {
+            // 启动星际穿越速度
+            gsap.to(animState, { globalSpeed: 1.0, duration: 3, ease: "power2.in" });
+            
+            // 镜头同样保持深空视角
+            gsap.to(camera.position, { x: 4, y: 3, z: 6, duration: 3, ease: "power2.inOut" });
+            
+            // 【修改】穿梭网格浮现得更清晰一些 (50%透明度)
+            gsap.to(gridHelper.material, { opacity: 0.5, duration: 2 });
+            gsap.to(topGridHelper.material, { opacity: 0.5, duration: 2 });
+
+            // 【修改】竖向穿梭门平滑淡入，防止“duang”地突兀出现
+            warpGates.forEach((gate, i) => {
+                if (!gate.visible) {
+                    gate.position.z = -10 - i * 12;
+                    gate.visible = true;
+                    gate.material.opacity = 0; // 确保从0开始淡入
+                }
+                gsap.to(gate.material, { opacity: 0.5, duration: 2.5, ease: "power1.inOut" });
+            });
+
+            // 确保体块已展开
+            cubes.forEach(wrapper => {
+                gsap.to(wrapper.scale, { x: 1, y: 1, z: 1, duration: 1.2, ease: "elastic.out(1, 0.5)" });
+            });
+
+            // 激活粒子碎片喷射
+            particles.forEach(p => burstParticle(p));
+
+            // 延迟一点启动魔方自扭
+            setTimeout(() => { if (!isTwisting && (currentPhase === 3 || currentPhase === 4)) twistRandomLayer(); }, 1500);
+        }
+
+        // --- 高潮细节1：魔方自动扭转 ---
+        function twistRandomLayer() {
+            if (currentPhase !== 3 && currentPhase !== 4) { isTwisting = false; return; }
+            isTwisting = true;
+
+            const axes = ['x', 'y', 'z'];
+            const axis = axes[Math.floor(Math.random() * 3)];
+            const targetSlice = (Math.floor(Math.random() * 3) - 1) * spacing;
+
+            const layerWrappers = [];
+            cubes.forEach(wrapper => {
+                if (Math.abs(wrapper.position[axis] - targetSlice) < 0.1) layerWrappers.push(wrapper);
+            });
+
+            pivot.rotation.set(0, 0, 0);
+            pivot.position.set(0, 0, 0);
+            layerWrappers.forEach(wrapper => pivot.attach(wrapper));
+
+            const direction = Math.random() > 0.5 ? 1 : -1;
+            const animProps = {
+                duration: 0.6,
+                ease: "back.inOut(1.4)", 
+                onComplete: () => {
+                    layerWrappers.forEach(wrapper => mainGroup.attach(wrapper));
+                    // 精度修正
+                    cubes.forEach(wrapper => {
+                        wrapper.position.x = Math.round(wrapper.position.x / spacing) * spacing;
+                        wrapper.position.y = Math.round(wrapper.position.y / spacing) * spacing;
+                        wrapper.position.z = Math.round(wrapper.position.z / spacing) * spacing;
+                        
+                        const euler = new THREE.Euler().setFromQuaternion(wrapper.quaternion);
+                        euler.x = Math.round(euler.x / (Math.PI/2)) * (Math.PI/2);
+                        euler.y = Math.round(euler.y / (Math.PI/2)) * (Math.PI/2);
+                        euler.z = Math.round(euler.z / (Math.PI/2)) * (Math.PI/2);
+                        wrapper.quaternion.setFromEuler(euler);
+                    });
+                    isTwisting = false;
+                    setTimeout(twistRandomLayer, 100);
+                }
+            };
+            animProps[axis] = (Math.PI / 2) * direction;
+            gsap.to(pivot.rotation, animProps);
+        }
+
+        // --- 进场初始化动画 (Blender感 -> 聚焦) ---
+        window.onload = () => {
+            // 开场假装是一个静止的3D网格空间
+            camera.position.set(8, 6, 8);
+            camera.lookAt(0,0,0);
+            document.getElementById('hint').innerText = "加载完毕。网格空间生成中...";
+            
+            // 2秒后自动进入第一阶段
+            setTimeout(() => {
+                setPhase(1);
+            }, 2000);
+        };
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- 渲染与全局特效循环 ---
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+
+            // 1. 展开部的微波律动
+            if (currentPhase === 2) {
+                cubes.forEach(wrapper => {
+                    if (wrapper.userData.initZ === 0) {
+                        const offset = wrapper.userData.initX * 0.5 + wrapper.userData.initY * 0.5;
+                        const floatZ = Math.sin(time * 2 + offset) * 0.15;
+                        wrapper.position.z = floatZ; // 在Z轴上微微起伏
+                    }
+                });
+            }
+
+            // 2. 高潮一阶与二阶的共通特效 (自转与闪烁)
+            if (currentPhase === 3 || currentPhase === 4) {
+                // 主体像星球一样的缓慢自转
+                mainGroup.rotation.x += 0.005;
+                mainGroup.rotation.y += 0.008;
+
+                // 疯狂的材质闪烁 (实心黑底与透明网格的切换)
+                if (Math.random() > 0.2) {
+                    const randomCube = cubes[Math.floor(Math.random() * cubes.length)];
+                    randomCube.userData.solidMesh.visible = Math.random() > 0.4;
+                }
+            }
+
+            // 3. 高潮二阶的独占狂暴特效 (穿梭与粒子)
+            if (currentPhase === 4) {
+                // A. 宇宙飞船级别的网格后退感
+                gridGroup.position.z += animState.globalSpeed * 0.3;
+                if (gridGroup.position.z > 10) gridGroup.position.z = 0; // 无限循环
+
+                // 竖立的“穿梭膜网格”极速冲向镜头
+                warpGates.forEach(gate => {
+                    gate.position.z += animState.globalSpeed * 0.8; 
+                    if (gate.position.z > camera.position.z + 2) {
+                        gate.position.z -= 60; 
+                    }
+                });
+
+                // 给魔方主体增加高频颠簸微震
+                mainGroup.position.x = Math.sin(time * 30) * 0.04 * animState.globalSpeed;
+                mainGroup.position.y = Math.cos(time * 35) * 0.04 * animState.globalSpeed;
+
+                // B. 喷射主体立体碎块 (带有视觉生命周期)
+                particles.forEach(p => {
+                    if (p.userData.active) {
+                        p.userData.life += p.userData.lifeStep * animState.globalSpeed;
+                        
+                        const scale = Math.sin(Math.min(p.userData.life, 1.0) * Math.PI);
+                        p.scale.setScalar(scale);
+
+                        p.position.addScaledVector(p.userData.velocity, animState.globalSpeed * 0.4);
+                        p.rotation.x += p.userData.rotSpeed.x * animState.globalSpeed;
+                        p.rotation.y += p.userData.rotSpeed.y * animState.globalSpeed;
+                        p.rotation.z += p.userData.rotSpeed.z * animState.globalSpeed;
+                        
+                        if (p.userData.life >= 1.0 || p.position.z > camera.position.z) {
+                            burstParticle(p);
+                        }
+                    }
+                });
+            }
+
+            controls.update(); 
+            renderer.render(scene, camera);
+        }
+        
+        animate();
+    </script>
+</body>
+</html>

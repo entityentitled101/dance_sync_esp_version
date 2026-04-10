@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>声·命体 —— v3.0</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; overflow: hidden; }
+    #visual-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+    #menu-btn { position: fixed; bottom: 20px; left: 20px; width: 44px; height: 44px; background: rgba(10,10,10,0.9); border: 1px solid #444; border-radius: 8px; cursor: pointer; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
+    #menu-btn span { display: block; width: 18px; height: 1.5px; background: #888; }
+    #side-menu { position: fixed; bottom: 70px; left: 20px; width: 280px; background: rgba(8,8,8,0.98); border: 1px solid #333; border-radius: 12px; padding: 16px; z-index: 199; display: none; }
+    #side-menu.open { display: block; }
+    .section-title { font-size: 9px; letter-spacing: 2px; color: #666; text-transform: uppercase; margin-bottom: 10px; }
+    .slider-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .slider-row label { font-size: 10px; color: #888; min-width: 70px; }
+    .slider-row input[type="range"] { flex: 1; height: 4px; background: #333; border-radius: 2px; -webkit-appearance: none; }
+    .slider-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; background: #fff; border-radius: 50%; }
+    .slider-row .value { font-size: 10px; color: #fff; min-width: 50px; text-align: right; font-family: monospace; }
+    #chapter-panel { position: fixed; bottom: 20px; right: 20px; display: flex; gap: 8px; z-index: 100; }
+    .chapter-btn { padding: 10px 16px; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; border: 1px solid #444; background: transparent; color: #666; cursor: pointer; border-radius: 6px; }
+    .chapter-btn.active { border-color: #fff; color: #fff; background: rgba(255,255,255,0.1); }
+    .chapter-btn.locked { border-color: #333; color: #333; cursor: not-allowed; opacity: 0.5; }
+    #reset-btn { padding: 10px 12px; font-size: 9px; border: 1px solid #333; background: transparent; color: #444; cursor: pointer; border-radius: 6px; }
+    #conn-panel { position: fixed; bottom: 80px; right: 20px; background: rgba(10,10,10,0.95); border: 1px solid #333; border-radius: 12px; padding: 14px 18px; z-index: 100; min-width: 220px; }
+    .panel-header { font-size: 10px; letter-spacing: 3px; color: #666; text-transform: uppercase; text-align: center; border-bottom: 1px solid #222; padding-bottom: 8px; margin-bottom: 12px; }
+    .conn-btn { width: 100%; padding: 10px; font-size: 9px; letter-spacing: 2px; border: 1px solid #444; background: transparent; color: #666; cursor: pointer; border-radius: 4px; margin-bottom: 8px; }
+    .conn-btn.connected { border-color: #fff; color: #fff; background: rgba(255,255,255,0.1); }
+    .energy-bar { display: flex; align-items: center; gap: 8px; font-size: 9px; color: #666; margin-top: 8px; }
+    .energy-track { flex: 1; height: 3px; background: #222; border-radius: 2px; overflow: hidden; }
+    .energy-fill { height: 100%; background: #fff; width: 0%; }
+    #phase-indicator { position: fixed; top: 30px; left: 50%; transform: translateX(-50%); font-size: 10px; letter-spacing: 3px; color: rgba(255,255,255,0.5); z-index: 50; text-transform: uppercase; }
+    
+    /* 文字覆盖层 */
+    .text-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 300;
+      pointer-events: none;
+      transition: opacity 0.8s ease;
+    }
+    .text-overlay.hidden { opacity: 0; }
+    
+    /* 开场 Intro */
+    #intro-overlay {
+      background: #000;
+    }
+    .intro-main {
+      font-family: 'Songti SC', 'SimSun', 'STSong', serif;
+      font-size: 72px;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: 20px;
+      text-indent: 20px;
+      margin-bottom: 20px;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 1.2s ease;
+    }
+    .intro-main.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .intro-sub {
+      display: flex; align-items: center; gap: 20px;
+      font-size: 12px;
+      letter-spacing: 4px;
+      color: rgba(255,255,255,0.6);
+      opacity: 0;
+      transition: opacity 0.8s ease 0.5s;
+    }
+    .intro-sub.visible { opacity: 1; }
+    .intro-line {
+      width: 40px; height: 1px;
+      background: rgba(255,255,255,0.3);
+    }
+    
+    /* 文案序列 */
+    #narrative-overlay {
+      background: transparent;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+    #narrative-overlay.visible { opacity: 1; }
+    .narrative-cn {
+      font-family: 'Songti SC', 'SimSun', 'STSong', serif;
+      font-size: 28px;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: 4px;
+      text-align: center;
+      margin-bottom: 16px;
+      max-width: 80%;
+      line-height: 1.6;
+    }
+    .narrative-en {
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: rgba(255,255,255,0.5);
+      text-transform: uppercase;
+    }
+    .narrative-cn, .narrative-en {
+      text-shadow: 0 2px 8px rgba(0,0,0,var(--shadow-opacity, 0.3));
+    }
+  </style>
+</head>
+<body>
+  <canvas id="visual-canvas"></canvas>
+  <div id="phase-indicator">第一章 · 开始</div>
+  
+  <!-- 开场 Intro -->
+  <div id="intro-overlay" class="text-overlay">
+    <div class="intro-main">声·命体</div>
+    <div class="intro-sub">
+      <span class="intro-line"></span>
+      <span>Sound Lifeform</span>
+      <span class="intro-line"></span>
+    </div>
+  </div>
+  
+  <!-- 文案序列 -->
+  <div id="narrative-overlay" class="text-overlay">
+    <div class="narrative-cn"></div>
+    <div class="narrative-en"></div>
+  </div>
+  
+  <div id="menu-btn" onclick="toggleMenu()"><span></span><span></span><span></span></div>
+  <div id="side-menu">
+    <div class="section-title">调试</div>
+    <div class="slider-row">
+      <label>手动强度</label>
+      <input type="range" id="manual-p" min="0" max="100" value="0" oninput="setManualProgress(this.value)">
+      <span class="value" id="val-manual">0%</span>
+    </div>
+    <div class="slider-row"><label>层数</label><span class="value" id="debug-layers">1</span></div>
+    <div class="slider-row"><label>P值</label><span class="value" id="debug-p">0.00</span></div>
+    
+    <div class="section-title" style="margin-top: 15px;">视觉开关</div>
+    <div class="slider-row">
+      <label>底部填充</label>
+      <input type="checkbox" id="toggle-fill" checked onchange="STATE.enableBottomFill = this.checked">
+    </div>
+    <div class="slider-row">
+      <label>近大远小</label>
+      <input type="checkbox" id="toggle-width" onchange="STATE.enableLineWidthVar = this.checked">
+    </div>
+    <div class="slider-row">
+      <label>非均匀间距</label>
+      <input type="checkbox" id="toggle-spacing" checked onchange="STATE.enableUnevenSpacing = this.checked">
+    </div>
+    <div class="slider-row">
+      <label>Y轴渐变</label>
+      <input type="checkbox" id="toggle-ygrad" checked onchange="STATE.enableYGradient = this.checked">
+    </div>
+    
+    <div class="section-title" style="margin-top: 15px;">线条参数</div>
+    <div class="slider-row">
+      <label>间距</label>
+      <input type="range" min="5" max="25" value="10" oninput="STATE.lineSpacing = parseInt(this.value); document.getElementById('val-spacing').textContent = this.value">
+      <span class="value" id="val-spacing">10</span>
+    </div>
+    <div class="slider-row">
+      <label>位置偏移</label>
+      <input type="range" min="-150" max="150" value="0" oninput="STATE.verticalOffset = parseInt(this.value); document.getElementById('val-offset').textContent = this.value">
+      <span class="value" id="val-offset">0</span>
+    </div>
+    <div class="slider-row">
+      <label>顶部边距</label>
+      <input type="range" min="0" max="200" value="80" oninput="STATE.marginTop = parseInt(this.value); document.getElementById('val-mtop').textContent = this.value">
+      <span class="value" id="val-mtop">80</span>
+    </div>
+    <div class="slider-row">
+      <label>底部边距</label>
+      <input type="range" min="0" max="200" value="80" oninput="STATE.marginBottom = parseInt(this.value); document.getElementById('val-mbot').textContent = this.value">
+      <span class="value" id="val-mbot">80</span>
+    </div>
+    
+    <div class="section-title" style="margin-top: 15px;">笔刷效果</div>
+    <div class="slider-row">
+      <label>中心粗细</label>
+      <input type="range" min="5" max="30" value="14" oninput="STATE.lineWidthCenter = parseInt(this.value)/10; document.getElementById('val-wc').textContent = STATE.lineWidthCenter.toFixed(1)">
+      <span class="value" id="val-wc">1.4</span>
+    </div>
+    <div class="slider-row">
+      <label>边缘粗细</label>
+      <input type="range" min="5" max="25" value="10" oninput="STATE.lineWidthEdge = parseInt(this.value)/10; document.getElementById('val-we').textContent = STATE.lineWidthEdge.toFixed(1)">
+      <span class="value" id="val-we">1.0</span>
+    </div>
+    
+    <div class="section-title" style="margin-top: 15px;">填充效果</div>
+    <div class="slider-row">
+      <label>粒子透明度</label>
+      <input type="range" min="0" max="50" value="0" oninput="STATE.fillOpacity = parseInt(this.value); document.getElementById('val-fop').textContent = this.value + '%'">
+      <span class="value" id="val-fop">0%</span>
+    </div>
+    
+    <div class="section-title" style="margin-top: 15px;">文字效果</div>
+    <div class="slider-row">
+      <label>阴影程度</label>
+      <input type="range" min="0" max="10" value="3" oninput="STATE.textShadow = parseInt(this.value)/10; document.getElementById('narrative-overlay').style.setProperty('--shadow-opacity', STATE.textShadow); document.getElementById('val-shadow').textContent = STATE.textShadow.toFixed(1)">
+      <span class="value" id="val-shadow">0.3</span>
+    </div>
+  </div>
+  
+  <div id="chapter-panel">
+    <button class="chapter-btn active" id="ch-1" onclick="jumpToChapter('ch1')">点</button>
+    <button class="chapter-btn" id="ch-2" onclick="jumpToChapter('ch2')">线</button>
+    <button class="chapter-btn locked" id="ch-3" onclick="" disabled>面</button>
+    <button class="chapter-btn locked" id="ch-4" onclick="" disabled>螺旋</button>
+    <button id="reset-btn" onclick="resetSystem()">重置</button>
+  </div>
+  
+  <div id="conn-panel">
+    <div class="panel-header">声·命体 v3.0</div>
+    <button class="conn-btn" id="ble-main" onclick="startBLE(0)">🔵 连接主手 ESP32</button>
+    <button class="conn-btn" id="ble-sub" onclick="startBLE(1)">🔵 连接副手 ESP32</button>
+    <div class="energy-bar">
+      <span>ENERGY</span>
+      <div class="energy-track"><div class="energy-fill" id="energy-fill"></div></div>
+      <span id="energy-value">0</span>
+    </div>
+  </div>
+
+  <script>
+    // ═══════════════════════════════════════════════════
+    // 配置
+    // ═══════════════════════════════════════════════════
+    const CONFIG = {
+      threshold: 20,
+      cooldown: 25,
+      smoothFrames: 15,
+    };
+    
+    const STATE = {
+      chapter: 1,
+      morphProgress: 0,
+      targetProgress: 0,
+      mainEnergy: 0,
+      subEnergy: 0,
+      mainPeaked: false,
+      subPeaked: false,
+      peakHold: 0,
+      prevMainVel: 0,
+      prevSubVel: 0,
+      mainBuf: [],
+      subBuf: [],
+      wavePhase: 0,
+      manualOverride: false,
+      // 视觉开关
+      enableBottomFill: true,      // 底部填充
+      enableLineWidthVar: false,   // 近大远小
+      enableUnevenSpacing: true,   // 非均匀间距
+      enableYGradient: true,       // Y轴透明度渐变
+      // 可调节参数
+      lineSpacing: 10,             // 线条基础间距 (5-20)
+      lineWidthCenter: 1.4,        // 线条中心粗细 (0.5-3)
+      lineWidthEdge: 1.0,          // 线条边缘粗细 (0.5-2)
+      verticalOffset: 0,           // 垂直偏移 (-100 到 100)
+      fillOpacity: 0,              // 填充透明度粒子 (0-50)
+      marginTop: 80,               // 顶部边距
+      marginBottom: 80,            // 底部边距
+      textShadow: 0.3,             // 文字阴影程度 (0-1)
+      // 文案系统状态
+      narrativePhase: 'intro',     // intro, preface, ch1, ch2, ch3, ch4, ending
+      narrativeSubPhase: '',       // 子阶段: developing, climax
+      showChapterTitle: false,     // 是否显示章节标题
+      // 文案触发记录（每个阶段只触发一次）
+      narrativeTriggered: {        // 记录各文案是否已触发
+        developing: false,
+        climax: false
+      },
+      narrativeTimer: null,        // 文案显示定时器
+    };
+    
+    // ═══════════════════════════════════════════════════
+    // 章节配置
+    // ═══════════════════════════════════════════════════
+    const CHAPTER_CONFIG = {
+      preface: {
+        title: '',
+        subtitle: '',
+        text: { cn: "你有没有好奇过——声音从哪里来？", en: "Have you ever wondered where sound comes from?" }
+      },
+      ch1: {
+        title: "好奇·探索",
+        subtitle: "Curiosity · Exploration",
+        textDeveloping: { cn: "好奇是什么声音？", en: "What does curiosity sound like?" },
+        textClimax: { cn: "没有逻辑，没有目的。只是好奇。", en: "No logic, no purpose. Just curiosity." }
+      },
+      ch2: {
+        title: "连接·触碰",
+        subtitle: "Connection · Touch",
+        textDeveloping: { cn: "伸出手，世界就会回答你。", en: "Reach out, and the world answers." },
+        textClimax: { cn: "每一次触碰，都是一次对话。", en: "Every touch is a conversation." }
+      },
+      ch3: {
+        title: "共鸣·共舞",
+        subtitle: "Resonance · Dance",
+        textDeveloping: { cn: "好奇是会传染的。", en: "Curiosity is contagious." },
+        textClimax: { cn: "你，不想试试吗？", en: "Don't you want to try?" }
+      },
+      ch4: {
+        title: "回归·自我",
+        subtitle: "Return · Self",
+        textDeveloping: { cn: "当所有声音消失，你听见什么？", en: "When all sounds fade, what do you hear?" },
+        textClimax: { cn: "", en: "" }
+      },
+      ending: {
+        title: "",
+        subtitle: "",
+        text: { cn: "刚才的声音里，有你的好奇吗？", en: "Was your curiosity among those sounds?" }
+      }
+    };
+    
+    const ctrl = [
+      { connected: false, bleDevice: null, bleChar: null },
+      { connected: false, bleDevice: null, bleChar: null }
+    ];
+    
+    const SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214';
+    const CHAR_UUID = '03504231-c554-43a4-b711-0b2945565834';
+    const DEVICE_NAMES = ['ESP32', 'ESP32-mini'];
+    
+    // ═══════════════════════════════════════════════════
+    // 俯瞰推进效果系统（替代祥云）
+    // ═══════════════════════════════════════════════════
+    class FlyoverSystem {
+      constructor() {
+        this.isActive = false;
+        this.peakStartTime = null;
+        this.cameraZ = 0;        // 相机深度（0=正常，1=推进到最近）
+        this.scrollOffset = 0;   // 线条滚动偏移
+        this.edgeOpacity = 0;    // 上下边缘填充透明度
+      }
+      
+      update(totalEnergy) {
+        // 追踪峰值状态
+        if (totalEnergy >= 95) {
+          if (!this.peakStartTime) {
+            this.peakStartTime = Date.now();
+          }
+          
+          const peakDuration = Date.now() - this.peakStartTime;
+          
+          // 5秒后激活俯瞰效果
+          if (peakDuration > 5000) {
+            this.isActive = true;
+          }
+          
+          // 相机推进（8秒完成推进）
+          const progress = Math.min(1, (peakDuration - 5000) / 8000);
+          this.cameraZ = progress; // 0→1
+          
+          // 上下边缘填充渐显
+          this.edgeOpacity = Math.min(0.6, this.edgeOpacity + 0.02);
+          
+        } else {
+          this.peakStartTime = null;
+          this.isActive = false;
+          this.cameraZ = Math.max(0, this.cameraZ - 0.05);
+          this.edgeOpacity = Math.max(0, this.edgeOpacity - 0.03);
+        }
+        
+        // 持续滚动（像无人机向前飞）
+        if (this.isActive || this.cameraZ > 0.01) {
+          this.scrollOffset += 0.5 + this.cameraZ * 2; // 速度随推进加快
+        }
+      }
+      
+      draw(ctx, width, height) {
+        if (this.edgeOpacity > 0.01) {
+          this.drawEdgeFill(ctx, width, height);
+        }
+      }
+      
+      drawEdgeFill(ctx, width, height) {
+        // 上方渐变填充
+        const topGradient = ctx.createLinearGradient(0, 0, 0, height * 0.25);
+        topGradient.addColorStop(0, `rgba(255, 255, 255, ${this.edgeOpacity * 0.3})`);
+        topGradient.addColorStop(0.5, `rgba(255, 255, 255, ${this.edgeOpacity * 0.15})`);
+        topGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        
+        ctx.fillStyle = topGradient;
+        ctx.fillRect(0, 0, width, height * 0.25);
+        
+        // 下方渐变填充
+        const bottomGradient = ctx.createLinearGradient(0, height * 0.75, 0, height);
+        bottomGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        bottomGradient.addColorStop(0.5, `rgba(255, 255, 255, ${this.edgeOpacity * 0.15})`);
+        bottomGradient.addColorStop(1, `rgba(255, 255, 255, ${this.edgeOpacity * 0.3})`);
+        
+        ctx.fillStyle = bottomGradient;
+        ctx.fillRect(0, height * 0.75, width, height * 0.25);
+      }
+      
+      // 获取相机推进后的Y坐标偏移
+      getYOffset(originalY, layerIndex, totalLayers) {
+        if (this.cameraZ < 0.01) return originalY;
+        
+        // 推进时，远处的层（小的index）移动更多，营造透视感
+        const depthRatio = layerIndex / (totalLayers - 1 || 1);
+        const perspectiveShift = this.cameraZ * 150 * (1 - depthRatio);
+        
+        // 持续向下滚动
+        const scrollShift = (this.scrollOffset + layerIndex * 10) % 200;
+        
+        return originalY + perspectiveShift + scrollShift * 0.3;
+      }
+      
+      // 获取推进后的线条粗细（近大远小）
+      getLineWidth(baseWidth, layerIndex, totalLayers) {
+        if (this.cameraZ < 0.01) return baseWidth;
+        
+        const depthRatio = layerIndex / (totalLayers - 1 || 1);
+        // 前景（大的index）变粗，后景（小的index）变细
+        return baseWidth * (0.5 + this.cameraZ * 0.5 + depthRatio * (1 + this.cameraZ));
+      }
+    }
+    
+    // 全局俯瞰系统
+    const flyoverSystem = new FlyoverSystem();
+    
+    // ═══════════════════════════════════════════════════
+    // 暗角效果
+    // ═══════════════════════════════════════════════════
+    function drawVignette(ctx, width, height) {
+      const gradient = ctx.createRadialGradient(
+        width / 2, height / 2, Math.min(width, height) * 0.3,
+        width / 2, height / 2, Math.max(width, height) * 0.8
+      );
+      gradient.addColorStop(0, 'rgba(0,0,0,0)');
+      gradient.addColorStop(0.6, 'rgba(0,0,0,0.2)');
+      gradient.addColorStop(1, 'rgba(0,0,0,0.6)');
+      
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+    // ---------------------------------------------------
+    // ?????:?(?????????)
+    // ---------------------------------------------------
+    function drawChapter1(ctx, cx, cy, width, height) {
+      const hasMain = ctrl[0].connected;
+      const hasSub = ctrl[1].connected;
+      const mainE = STATE.mainEnergy;
+      const totalE = (STATE.mainEnergy + STATE.subEnergy) / 2;
+      
+      const pulseSpeed = 0.003;
+      const time = Date.now() * pulseSpeed;
+      
+      // ??:0=????, 1=????, 2=???(?????), 3=??(?????)
+      let stage = 0;
+      if (hasSub && totalE > 70) {
+        stage = 3;
+      } else if (hasMain && mainE > 50) {
+        stage = 2;
+      } else if (hasMain) {
+        stage = 1;
+      }
+      
+      if (stage === 0) {
+        // ??:??????
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+      } else if (stage === 1) {
+        // ????(????,???)
+        const baseRadius = 40;
+        const pulse = Math.sin(time * 2) * 0.1 + 1;
+        const radius = baseRadius * pulse;
+        
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.lineWidth = 1;
+        
+        // ?????(??+??)
+        drawWireframeSphere(ctx, cx, cy, radius, 6, 4, 0.02, time);
+        
+      } else if (stage === 2) {
+        // ???:?????,????
+        const baseRadius = 50 + (mainE - 50) * 0.8;
+        const explodeFactor = (mainE - 50) / 50;
+        const pulse = Math.sin(time * 3) * 0.15 + 1;
+        const radius = baseRadius * pulse;
+        
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.6 + explodeFactor * 0.3})`;
+        ctx.lineWidth = 1 + explodeFactor * 0.5;
+        
+        // ?????? + ????
+        drawWireframeSphere(ctx, cx, cy, radius, 10, 6, 0.1 * explodeFactor, time);
+        
+        // ????
+        drawExplosionParticles(ctx, cx, cy, radius, explodeFactor, 20);
+        
+      } else if (stage === 3) {
+        // ??:?????,????
+        const baseRadius = 60 + (totalE - 70) * 1.2;
+        const explodeFactor = (totalE - 70) / 30;
+        const pulse = Math.sin(time * 4) * 0.2 + 1;
+        const radius = baseRadius * pulse;
+        
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 + explodeFactor * 0.2})`;
+        ctx.lineWidth = 1.2 + explodeFactor * 0.8;
+        
+        // ?????? + ???
+        drawWireframeSphere(ctx, cx, cy, radius, 14, 8, 0.2 * explodeFactor, time);
+        
+        // ??????
+        drawExplosionParticles(ctx, cx, cy, radius, explodeFactor, 40);
+      }
+    }
+    
+    // ????:??????
+    function drawWireframeSphere(ctx, cx, cy, radius, meridians, parallels, noiseAmp, time) {
+      ctx.strokeStyle = ctx.strokeStyle || 'rgba(255, 255, 255, 0.6)';
+      ctx.lineWidth = ctx.lineWidth || 1;
+      
+      // ??
+      for (let i = 0; i < meridians; i++) {
+        const angle = (i / meridians) * Math.PI * 2;
+        ctx.beginPath();
+        for (let j = 0; j <= 30; j++) {
+          const lat = (j / 30) * Math.PI - Math.PI / 2;
+          const noise = Math.sin(lat * 4 + time + i) * noiseAmp;
+          const r = radius * (1 + noise);
+          const x = cx + r * Math.cos(lat) * Math.cos(angle);
+          const y = cy + r * Math.sin(lat);
+          if (j === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      
+      // ??
+      for (let i = 0; i < parallels; i++) {
+        const lat = ((i + 1) / (parallels + 1)) * Math.PI - Math.PI / 2;
+        const y = cy + radius * Math.sin(lat);
+        const r = radius * Math.cos(lat);
+        ctx.beginPath();
+        for (let j = 0; j <= 40; j++) {
+          const angle = (j / 40) * Math.PI * 2;
+          const noise = Math.sin(angle * 3 + time * 1.5) * noiseAmp * 0.8;
+          const rr = r * (1 + noise);
+          const x = cx + rr * Math.cos(angle);
+          const py = y + (Math.random() - 0.5) * noiseAmp * 10;
+          if (j === 0) ctx.moveTo(x, py);
+          else ctx.lineTo(x, py);
+        }
+        ctx.stroke();
+      }
+    }
+    
+    // ????:??????
+    function drawExplosionParticles(ctx, cx, cy, radius, factor, maxCount) {
+      const count = Math.floor(factor * maxCount);
+      if (count <= 0) return;
+      
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.4 + factor * 0.4})`;
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = radius * (1 + Math.random() * 0.5 * factor);
+        const x = cx + Math.cos(angle) * dist;
+        const y = cy + Math.sin(angle) * dist;
+        const size = 1 + Math.random() * 2;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    
+    // 其他章节简化版
+    // ═══════════════════════════════════════════════════
+    // 绘制第二章：线（Joy Division 风格，采用 b88f2a4 完整版本）
+    // ═══════════════════════════════════════════════════
+    function drawChapter2(ctx, cx, cy, width, height) {
+      const P = STATE.morphProgress;
+      const numLayers = Math.floor(1 + P * 29);
+      
+      // 视图参数（可调节）
+      const viewW = width * 0.95;
+      const spacingY = STATE.lineSpacing;
+      const elev = cy + STATE.verticalOffset + height * 0.1;
+      const marginTop = STATE.marginTop;
+      const marginBottom = STATE.marginBottom;
+      const usableHeight = height - marginTop - marginBottom;
+      
+      // 从远到近绘制
+      for (let i = numLayers - 1; i >= 0; i--) {
+        const normZ = i / (numLayers - 1 || 1);
+        
+        // Y位置
+        const baseY = elev - i * spacingY;
+        const y = flyoverSystem.getYOffset(baseY, i, numLayers);
+        
+        // 检查是否在有效范围内
+        if (y < marginTop || y > height - marginBottom) continue;
+        
+        // 深度渐变
+        let alpha;
+        if (STATE.enableYGradient) {
+          const usableY = y - marginTop;
+          const screenRatio = usableY / usableHeight;
+          if (screenRatio < 0.5) {
+            alpha = 0.2 + screenRatio * 1.6;
+          } else {
+            alpha = 1.0 - (screenRatio - 0.5) * 0.8;
+          }
+          alpha = Math.max(0.15, Math.min(1.0, alpha));
+        } else {
+          alpha = 0.3 + normZ * 0.7;
+        }
+        
+        // 绘制波形
+        const points = 140;
+        const startX = (width - viewW) / 2;
+        const pts = [];
+        
+        // 预计算所有点
+        for (let p = 0; p <= points; p++) {
+          const progress = p / points;
+          const x = startX + progress * viewW;
+          const nx = progress - 0.5;
+          
+          let bell = Math.exp(-Math.pow(nx * 7, 2));
+          if (Math.abs(nx) >= 0.45) bell = 0;
+          
+          const t = STATE.wavePhase + flyoverSystem.scrollOffset * 0.01;
+          const noise = Math.sin(p * 0.15 + t + i * 0.3) + Math.cos(p * 0.35 - t * 0.6 + i * 0.2) * 0.5;
+          const ridge = Math.abs(noise);
+          
+          const baseAmp = 20 + P * 50;
+          const depthAmp = 0.5 + normZ * 0.5;
+          const amp = ridge * baseAmp * bell * depthAmp;
+          
+          const py = y - amp;
+          pts.push({x, y: py, progress, bell});
+        }
+        
+        // 绘制线条（支持笔刷效果）
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineCap = 'round';
+        
+        const segments = 20;
+        const ptsPerSeg = Math.floor(pts.length / segments);
+        
+        for (let seg = 0; seg < segments; seg++) {
+          const startIdx = seg * ptsPerSeg;
+          const endIdx = Math.min((seg + 1) * ptsPerSeg, pts.length - 1);
+          
+          const segCenter = (seg + 0.5) / segments;
+          const brushFactor = 1 - Math.abs(segCenter - 0.5) * 2;
+          
+          let lw;
+          if (STATE.enableLineWidthVar) {
+            lw = flyoverSystem.getLineWidth(1.4, i, numLayers);
+          } else {
+            const centerW = STATE.lineWidthCenter;
+            const edgeW = STATE.lineWidthEdge;
+            lw = edgeW + (centerW - edgeW) * brushFactor;
+          }
+          ctx.lineWidth = lw;
+          
+          ctx.beginPath();
+          for (let k = startIdx; k <= endIdx; k++) {
+            if (k === startIdx) ctx.moveTo(pts[k].x, pts[k].y);
+            else ctx.lineTo(pts[k].x, pts[k].y);
+          }
+          ctx.stroke();
+        }
+        
+        // 底部填充
+        if (STATE.enableBottomFill && pts.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let k = 1; k < pts.length; k++) {
+            ctx.lineTo(pts[k].x, pts[k].y);
+          }
+          ctx.lineTo(pts[pts.length - 1].x, height + 100);
+          ctx.lineTo(pts[0].x, height + 100);
+          ctx.closePath();
+          ctx.fillStyle = '#000';
+          ctx.fill();
+          
+          // 粒子效果
+          if (STATE.fillOpacity > 0) {
+            const particleOpacity = STATE.fillOpacity / 100;
+            ctx.fillStyle = `rgba(255, 255, 255, ${particleOpacity * 0.3})`;
+            for (let k = 0; k < pts.length; k += 3) {
+              if (pts[k].bell > 0.5) {
+                const px = pts[k].x;
+                const py = pts[k].y;
+                for (let pp = 0; pp < 3; pp++) {
+                  const py2 = py + Math.random() * 20;
+                  const px2 = px + (Math.random() - 0.5) * 6;
+                  const size = 1 + Math.random() * 2;
+                  ctx.beginPath();
+                  ctx.arc(px2, py2, size, 0, Math.PI * 2);
+                  ctx.fill();
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      flyoverSystem.draw(ctx, width, height);
+    }
+    
+    function drawChapter3(ctx, cx, cy, width, height) {
+      const P = STATE.morphProgress;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.4;
+      
+      const arms = Math.floor(1 + P * 6);
+      for (let arm = 0; arm < arms; arm++) {
+        const offset = (arm / arms) * Math.PI * 2;
+        ctx.beginPath();
+        for (let i = 0; i <= 200; i++) {
+          const progress = i / 200;
+          const theta = progress * Math.PI * 4 + offset;
+          const r = progress * (50 + P * 300);
+          const x = cx + r * Math.cos(theta);
+          const y = cy + r * Math.sin(theta) * 0.7;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // 视觉引擎
+    // ═══════════════════════════════════════════════════
+    class VisualEngine {
+      constructor() {
+        this.canvas = document.getElementById('visual-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.dpr = window.devicePixelRatio || 1;
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        this.animate();
+      }
+      
+      resize() {
+        this.dpr = window.devicePixelRatio || 1;
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        this.canvas.style.width = this.width + 'px';
+        this.canvas.style.height = this.height + 'px';
+        this.canvas.width = this.width * this.dpr;
+        this.canvas.height = this.height * this.dpr;
+        this.ctx.scale(this.dpr, this.dpr);
+      }
+      
+      animate() {
+        requestAnimationFrame(() => this.animate());
+        
+        this.updateLogic();
+        
+        // 清屏
+        this.ctx.fillStyle = '#000';
+        this.ctx.fillRect(0, 0, this.width, this.height);
+        
+        const cx = this.width / 2;
+        const cy = this.height / 2;
+        
+        // 根据 narrativePhase 决定绘制内容
+        if (STATE.narrativePhase === 'preface') {
+          // preface 阶段：全黑背景，不绘制任何波形
+        } else if (STATE.narrativePhase === 'ch1') {
+          // 第一章：绘制点
+          drawChapter1(this.ctx, cx, cy, this.width, this.height);
+        } else if (STATE.narrativePhase === 'ch2') {
+          // 第二章：绘制线
+          drawChapter2(this.ctx, cx, cy, this.width, this.height);
+        } else if (STATE.chapter >= 1 && STATE.chapter <= 3) {
+          // 兼容旧逻辑
+          switch (STATE.chapter) {
+            case 1: drawChapter1(this.ctx, cx, cy, this.width, this.height); break;
+            case 2: drawChapter2(this.ctx, cx, cy, this.width, this.height); break;
+            case 3: drawChapter3(this.ctx, cx, cy, this.width, this.height); break;
+          }
+        }
+        
+        // 绘制暗角效果
+        drawVignette(this.ctx, this.width, this.height);
+        
+        this.updateUI();
+      }
+      
+      updateLogic() {
+        if (STATE.manualOverride) return;
+        
+        const hasSub = ctrl[1].connected;
+        const maxE = Math.max(STATE.mainEnergy, STATE.subEnergy);
+        const totalE = (STATE.mainEnergy + STATE.subEnergy) / 2;
+        
+        if (STATE.peakHold > 0) STATE.peakHold--;
+        else { STATE.mainPeaked = false; STATE.subPeaked = false; }
+        
+        let target = 0;
+        if (hasSub && STATE.mainPeaked && STATE.subPeaked && maxE > 70) {
+          target = 1.0;
+        } else if (maxE > 30) {
+          target = 0.3 + (maxE / 100) * 0.4;
+        }
+        
+        STATE.targetProgress = target;
+        STATE.morphProgress += (STATE.targetProgress - STATE.morphProgress) * 0.04;
+        STATE.wavePhase += 0.02;
+        
+        // 更新俯瞰系统
+        flyoverSystem.update(totalE);
+        
+        // 更新文案系统（根据能量触发发展/高潮）
+        if (STATE.narrativePhase.startsWith('ch')) {
+          updateNarrativeByEnergy(totalE, hasSub);
+        }
+      }
+      
+      updateUI() {
+        const P = STATE.morphProgress;
+        const layers = Math.floor(1 + P * 29);
+        
+        const elLayers = document.getElementById('debug-layers');
+        const elP = document.getElementById('debug-p');
+        const elEnergy = document.getElementById('energy-fill');
+        const elVal = document.getElementById('energy-value');
+        
+        if (elLayers) elLayers.textContent = layers;
+        if (elP) elP.textContent = P.toFixed(2) + ' | 俯瞰:' + (flyoverSystem.isActive ? 'ON' : 'OFF') + ' Z:' + flyoverSystem.cameraZ.toFixed(2);
+        if (elEnergy) elEnergy.style.width = (STATE.mainEnergy + STATE.subEnergy) / 2 + '%';
+        if (elVal) elVal.textContent = Math.round((STATE.mainEnergy + STATE.subEnergy) / 2);
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // 传感器处理
+    // ═══════════════════════════════════════════════════
+    function detectPeak(velocity, isMain) {
+      const prev = isMain ? STATE.prevMainVel : STATE.prevSubVel;
+      if (velocity > prev * 1.1 && velocity > CONFIG.threshold) {
+        if (isMain) STATE.mainPeaked = true;
+        else STATE.subPeaked = true;
+        STATE.peakHold = CONFIG.cooldown;
+      }
+      if (isMain) STATE.prevMainVel = velocity;
+      else STATE.prevSubVel = velocity;
+    }
+    
+    function updateEnergy(accMag, gyroMag, isMain) {
+      const net = Math.max(0, accMag - 9.8);
+      const instant = Math.min(100, (net + gyroMag * 0.5) * 8);
+      const buf = isMain ? STATE.mainBuf : STATE.subBuf;
+      buf.push(instant);
+      if (buf.length > CONFIG.smoothFrames) buf.shift();
+      const energy = buf.reduce((a,b) => a+b, 0) / buf.length;
+      if (isMain) STATE.mainEnergy = energy;
+      else STATE.subEnergy = energy;
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // BLE
+    // ═══════════════════════════════════════════════════
+    async function startBLE(idx) {
+      if (!navigator.bluetooth) { alert('需要Chrome/Edge'); return; }
+      
+      const btn = document.getElementById(idx === 0 ? 'ble-main' : 'ble-sub');
+      const c = ctrl[idx];
+      
+      if (c.connected) {
+        try { if (c.bleDevice) c.bleDevice.gatt.disconnect(); } catch(e){}
+        c.connected = false; c.bleDevice = null; c.bleChar = null;
+        btn.textContent = idx === 0 ? '🔵 连接主手 ESP32' : '🔵 连接副手 ESP32';
+        btn.classList.remove('connected');
+        return;
+      }
+      
+      btn.textContent = '扫描中...'; btn.disabled = true;
+      
+      try {
+        c.bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ name: DEVICE_NAMES[idx] }],
+          optionalServices: [SERVICE_UUID]
+        });
+        
+        c.bleDevice.addEventListener('gattserverdisconnected', () => {
+          c.connected = false; c.bleDevice = null; c.bleChar = null;
+          btn.textContent = idx === 0 ? '🔵 连接主手 ESP32' : '🔵 连接副手 ESP32';
+          btn.classList.remove('connected');
+        });
+        
+        const server = await c.bleDevice.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        c.bleChar = await service.getCharacteristic(CHAR_UUID);
+        await c.bleChar.startNotifications();
+        
+        c.bleChar.addEventListener('characteristicvaluechanged', (e) => {
+          try {
+            const data = JSON.parse(new TextDecoder().decode(e.target.value));
+            onSensorData(idx, data);
+          } catch(_) {}
+        });
+        
+        c.connected = true;
+        btn.textContent = '🔵 已连接';
+        btn.classList.add('connected');
+        btn.disabled = false;
+      } catch (e) {
+        btn.textContent = idx === 0 ? '🔵 连接主手 ESP32' : '🔵 连接副手 ESP32';
+        btn.disabled = false;
+      }
+    }
+    
+    function onSensorData(idx, data) {
+      const isMain = idx === 0;
+      let ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0;
+      if (data.ax !== undefined) {
+        ax = +data.ax; ay = +data.ay; az = +data.az;
+        gx = +data.gx; gy = +data.gy; gz = +data.gz;
+      }
+      const accMag = Math.sqrt(ax*ax + ay*ay + az*az);
+      const gyroMag = Math.sqrt(gx*gx + gy*gy + gz*gz);
+      detectPeak(accMag, isMain);
+      updateEnergy(accMag, gyroMag, isMain);
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // UI
+    // ═══════════════════════════════════════════════════
+    function setManualProgress(val) {
+      STATE.morphProgress = val / 100;
+      STATE.manualOverride = val > 0;
+      const el = document.getElementById('val-manual');
+      if (el) el.textContent = val + '%';
+    }
+    
+    function setChapter(ch) {
+      STATE.chapter = ch;
+      STATE.morphProgress = 0;
+      STATE.targetProgress = 0;
+      [1,2,3].forEach(i => {
+        const btn = document.getElementById('ch-' + i);
+        if (btn) btn.classList.toggle('active', i === ch);
+      });
+    }
+    
+    function resetSystem() {
+      STATE.morphProgress = 0;
+      STATE.targetProgress = 0;
+      STATE.mainEnergy = 0;
+      STATE.subEnergy = 0;
+      STATE.mainPeaked = false;
+      STATE.subPeaked = false;
+      STATE.mainBuf = [];
+      STATE.subBuf = [];
+    }
+    
+    // ═══════════════════════════════════════════════════
+    // 开场 & 文案系统（状态驱动）
+    // ═══════════════════════════════════════════════════
+    
+    function startIntro() {
+      const introOverlay = document.getElementById('intro-overlay');
+      const mainTitle = introOverlay.querySelector('.intro-main');
+      const subTitle = introOverlay.querySelector('.intro-sub');
+      
+      // 显示主标题
+      setTimeout(() => mainTitle.classList.add('visible'), 500);
+      // 显示副标题
+      setTimeout(() => subTitle.classList.add('visible'), 1500);
+      
+      // 5秒后淡出开场，进入preface
+      setTimeout(() => {
+        introOverlay.classList.add('hidden');
+        enterPhase('preface');
+      }, 5000);
+    }
+    
+    function enterPhase(phase) {
+      STATE.narrativePhase = phase;
+      STATE.narrativeSubPhase = '';
+      STATE.showChapterTitle = false;
+      
+      const overlay = document.getElementById('narrative-overlay');
+      const cnEl = overlay.querySelector('.narrative-cn');
+      const enEl = overlay.querySelector('.narrative-en');
+      const config = CHAPTER_CONFIG[phase];
+      
+      // 更新章节按钮
+      document.querySelectorAll('.chapter-btn').forEach(btn => btn.classList.remove('active'));
+      
+      if (phase === 'preface') {
+        // 开场前：全黑背景，显示引导文字
+        cnEl.textContent = config.text.cn;
+        enEl.textContent = config.text.en;
+        overlay.classList.add('visible');
+        
+        // 5秒后自动进入第一章
+        setTimeout(() => {
+          overlay.classList.remove('visible');
+          setTimeout(() => enterChapter('ch1'), 800);
+        }, 5000);
+        
+      } else if (phase === 'ending') {
+        // 结尾
+        cnEl.textContent = config.text.cn;
+        enEl.textContent = config.text.en;
+        overlay.classList.add('visible');
+        document.getElementById('ch-4').classList.add('active');
+        updatePhaseIndicator('螺旋 · 回归·自我');
+        
+      } else {
+        // 章节切换（手动）
+        enterChapter(phase);
+      }
+    }
+    
+    function enterChapter(chapter) {
+      STATE.narrativePhase = chapter;
+      STATE.narrativeSubPhase = '';
+      STATE.showChapterTitle = true;
+      
+      // 重置文案触发状态（进入新章节时重置）
+      STATE.narrativeTriggered = { developing: false, climax: false };
+      if (STATE.narrativeTimer) {
+        clearTimeout(STATE.narrativeTimer);
+        STATE.narrativeTimer = null;
+      }
+      
+      const config = CHAPTER_CONFIG[chapter];
+      const overlay = document.getElementById('narrative-overlay');
+      
+      // 隐藏中央文案
+      overlay.classList.remove('visible');
+      
+      // 更新顶部标题
+      updatePhaseIndicator(config.title + ' · ' + config.subtitle);
+      
+      // 更新按钮状态
+      const btnMap = { 'ch1': 'ch-1', 'ch2': 'ch-2', 'ch3': 'ch-3', 'ch4': 'ch-4' };
+      const btnId = btnMap[chapter];
+      if (btnId) document.getElementById(btnId).classList.add('active');
+    }
+    
+    function updateNarrativeByEnergy(energy, hasSub) {
+      // 根据能量状态更新文案（发展/高潮）- 每个阶段只触发一次，显示5秒
+      const phase = STATE.narrativePhase;
+      if (!CHAPTER_CONFIG[phase]) return;
+      
+      const config = CHAPTER_CONFIG[phase];
+      const overlay = document.getElementById('narrative-overlay');
+      const cnEl = overlay.querySelector('.narrative-cn');
+      const enEl = overlay.querySelector('.narrative-en');
+      
+      // 确定子阶段（第一章点：单手>50发展部, 双手>70高潮）
+      let newSubPhase = '';
+      const isChapter1 = STATE.narrativePhase === 'ch1';
+      
+      if (isChapter1) {
+        // 第一章：点 的特殊阈值
+        const totalE = (STATE.mainEnergy + STATE.subEnergy) / 2;
+        if (STATE.mainEnergy > 50 && totalE < 70) {
+          newSubPhase = 'developing';
+        } else if (hasSub && totalE >= 70) {
+          newSubPhase = 'climax';
+        }
+      } else {
+        // 其他章节保持原阈值
+        if (energy > 30 && energy < 70) {
+          newSubPhase = 'developing';
+        } else if (energy >= 70) {
+          newSubPhase = 'climax';
+        }
+      }
+      
+      // 只处理进入新阶段的情况，且该阶段未触发过
+      if (newSubPhase !== STATE.narrativeSubPhase) {
+        STATE.narrativeSubPhase = newSubPhase;
+        
+        // 清除之前的定时器
+        if (STATE.narrativeTimer) {
+          clearTimeout(STATE.narrativeTimer);
+          STATE.narrativeTimer = null;
+        }
+        
+        if (newSubPhase === 'developing' && config.textDeveloping && !STATE.narrativeTriggered.developing) {
+          // 第一次进入发展部，显示文案
+          STATE.narrativeTriggered.developing = true;
+          cnEl.textContent = config.textDeveloping.cn;
+          enEl.textContent = config.textDeveloping.en;
+          overlay.classList.add('visible');
+          
+          // 5秒后自动隐藏
+          STATE.narrativeTimer = setTimeout(() => {
+            overlay.classList.remove('visible');
+          }, 5000);
+          
+        } else if (newSubPhase === 'climax' && config.textClimax && !STATE.narrativeTriggered.climax) {
+          // 第一次进入高潮，显示文案
+          STATE.narrativeTriggered.climax = true;
+          cnEl.textContent = config.textClimax.cn;
+          enEl.textContent = config.textClimax.en;
+          overlay.classList.add('visible');
+          
+          // 5秒后自动隐藏
+          STATE.narrativeTimer = setTimeout(() => {
+            overlay.classList.remove('visible');
+          }, 5000);
+          
+        } else if (!newSubPhase) {
+          // 回到空闲状态，立即隐藏
+          overlay.classList.remove('visible');
+        }
+        // 其他情况（已触发过或没有文案）不做任何操作
+      }
+    }
+    
+    function updatePhaseIndicator(text) {
+      const indicator = document.getElementById('phase-indicator');
+      if (indicator) indicator.textContent = text;
+    }
+    
+    function jumpToChapter(chapter) {
+      // 手动切换章节
+      document.getElementById('intro-overlay').classList.add('hidden');
+      document.getElementById('narrative-overlay').classList.remove('visible');
+      enterChapter(chapter);
+    }
+    
+    function toggleMenu() {
+      const menu = document.getElementById('side-menu');
+      if (menu) menu.classList.toggle('open');
+    }
+    
+    // 启动
+    new VisualEngine();
+    startIntro();
+  </script>
+</body>
+</html>

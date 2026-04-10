@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>声·命体 —— v3.0</title>
+  <!-- Three.js 库 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; overflow: hidden; }
@@ -130,78 +132,24 @@
   <div id="menu-btn" onclick="toggleMenu()"><span></span><span></span><span></span></div>
   <div id="side-menu">
     <div class="section-title">调试</div>
-    <div class="slider-row">
-      <label>手动强度</label>
-      <input type="range" id="manual-p" min="0" max="100" value="0" oninput="setManualProgress(this.value)">
-      <span class="value" id="val-manual">0%</span>
-    </div>
-    <div class="slider-row"><label>层数</label><span class="value" id="debug-layers">1</span></div>
-    <div class="slider-row"><label>P值</label><span class="value" id="debug-p">0.00</span></div>
+    <div class="slider-row"><label>能量</label><span class="value" id="debug-energy">0</span></div>
+    <div class="slider-row"><label>阶段</label><span class="value" id="debug-stage">0</span></div>
     
-    <div class="section-title" style="margin-top: 15px;">视觉开关</div>
+    <div class="section-title" style="margin-top: 15px;">触发阈值 (能量范围0-10000)</div>
     <div class="slider-row">
-      <label>底部填充</label>
-      <input type="checkbox" id="toggle-fill" checked onchange="STATE.enableBottomFill = this.checked">
+      <label>抖动阈值</label>
+      <input type="range" id="threshold-motion" min="100" max="5000" value="1500" oninput="STATE.motionThreshold = parseInt(this.value); document.getElementById('val-motion').textContent = this.value">
+      <span class="value" id="val-motion">1500</span>
     </div>
     <div class="slider-row">
-      <label>近大远小</label>
-      <input type="checkbox" id="toggle-width" onchange="STATE.enableLineWidthVar = this.checked">
+      <label>发展阈值</label>
+      <input type="range" id="threshold-develop" min="1000" max="8000" value="4000" oninput="STATE.developThreshold = parseInt(this.value); document.getElementById('val-develop').textContent = this.value">
+      <span class="value" id="val-develop">4000</span>
     </div>
     <div class="slider-row">
-      <label>非均匀间距</label>
-      <input type="checkbox" id="toggle-spacing" checked onchange="STATE.enableUnevenSpacing = this.checked">
-    </div>
-    <div class="slider-row">
-      <label>Y轴渐变</label>
-      <input type="checkbox" id="toggle-ygrad" checked onchange="STATE.enableYGradient = this.checked">
-    </div>
-    
-    <div class="section-title" style="margin-top: 15px;">线条参数</div>
-    <div class="slider-row">
-      <label>间距</label>
-      <input type="range" min="5" max="25" value="10" oninput="STATE.lineSpacing = parseInt(this.value); document.getElementById('val-spacing').textContent = this.value">
-      <span class="value" id="val-spacing">10</span>
-    </div>
-    <div class="slider-row">
-      <label>位置偏移</label>
-      <input type="range" min="-150" max="150" value="0" oninput="STATE.verticalOffset = parseInt(this.value); document.getElementById('val-offset').textContent = this.value">
-      <span class="value" id="val-offset">0</span>
-    </div>
-    <div class="slider-row">
-      <label>顶部边距</label>
-      <input type="range" min="0" max="200" value="80" oninput="STATE.marginTop = parseInt(this.value); document.getElementById('val-mtop').textContent = this.value">
-      <span class="value" id="val-mtop">80</span>
-    </div>
-    <div class="slider-row">
-      <label>底部边距</label>
-      <input type="range" min="0" max="200" value="80" oninput="STATE.marginBottom = parseInt(this.value); document.getElementById('val-mbot').textContent = this.value">
-      <span class="value" id="val-mbot">80</span>
-    </div>
-    
-    <div class="section-title" style="margin-top: 15px;">笔刷效果</div>
-    <div class="slider-row">
-      <label>中心粗细</label>
-      <input type="range" min="5" max="30" value="14" oninput="STATE.lineWidthCenter = parseInt(this.value)/10; document.getElementById('val-wc').textContent = STATE.lineWidthCenter.toFixed(1)">
-      <span class="value" id="val-wc">1.4</span>
-    </div>
-    <div class="slider-row">
-      <label>边缘粗细</label>
-      <input type="range" min="5" max="25" value="10" oninput="STATE.lineWidthEdge = parseInt(this.value)/10; document.getElementById('val-we').textContent = STATE.lineWidthEdge.toFixed(1)">
-      <span class="value" id="val-we">1.0</span>
-    </div>
-    
-    <div class="section-title" style="margin-top: 15px;">填充效果</div>
-    <div class="slider-row">
-      <label>粒子透明度</label>
-      <input type="range" min="0" max="50" value="0" oninput="STATE.fillOpacity = parseInt(this.value); document.getElementById('val-fop').textContent = this.value + '%'">
-      <span class="value" id="val-fop">0%</span>
-    </div>
-    
-    <div class="section-title" style="margin-top: 15px;">文字效果</div>
-    <div class="slider-row">
-      <label>阴影程度</label>
-      <input type="range" min="0" max="10" value="3" oninput="STATE.textShadow = parseInt(this.value)/10; document.getElementById('narrative-overlay').style.setProperty('--shadow-opacity', STATE.textShadow); document.getElementById('val-shadow').textContent = STATE.textShadow.toFixed(1)">
-      <span class="value" id="val-shadow">0.3</span>
+      <label>高潮阈值</label>
+      <input type="range" id="threshold-climax" min="5000" max="9500" value="7500" oninput="STATE.climaxThreshold = parseInt(this.value); document.getElementById('val-climax').textContent = this.value">
+      <span class="value" id="val-climax">7500</span>
     </div>
   </div>
   
@@ -225,6 +173,201 @@
   </div>
 
   <script>
+    // ═══════════════════════════════════════════════════
+    // 第一章「点」Three.js 视觉系统
+    // 以下代码完整复制自 gemini-frontend/point.html
+    // ═══════════════════════════════════════════════════
+    
+    class Chapter1Point {
+      constructor(container) {
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x000000);
+        this.scene.fog = new THREE.FogExp2(0x000000, 0.05);
+
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera.position.z = 8;
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        container.appendChild(this.renderer.domElement);
+
+        this.createGeometry();
+        
+        this.currentParams = {
+          scale: 0.1, noiseAmount: 0.0, rotationSpeed: 0.002,
+          ringAlpha: 0.0, ringScale: 0.1, particleAlpha: 0.0, particleSpread: 0.0
+        };
+
+        this.targetParams = {
+          scale: 0.15, noiseAmount: 0.01, rotationSpeed: 0.001,
+          ringAlpha: 0.0, ringScale: 0.5, particleAlpha: 0.0, particleSpread: 0.0
+        };
+
+        this.clock = new THREE.Clock();
+        this.mouseX = 0; this.mouseY = 0;
+        this.targetRotationX = 0; this.targetRotationY = 0;
+        
+        window.addEventListener('mousemove', (e) => {
+          this.mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+          this.mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+        });
+        window.addEventListener('resize', () => this.onResize());
+      }
+
+      createGeometry() {
+        this.geometry = new THREE.IcosahedronGeometry(2, 16);
+        this.wireframeMaterial = new THREE.MeshBasicMaterial({
+          color: 0xffffff, wireframe: true, transparent: true, opacity: 0.15
+        });
+        this.pointsMaterial = new THREE.PointsMaterial({
+          color: 0xffffff, size: 0.04, transparent: true, opacity: 0.8
+        });
+        this.wireframeMesh = new THREE.Mesh(this.geometry, this.wireframeMaterial);
+        this.pointsMesh = new THREE.Points(this.geometry, this.pointsMaterial);
+        this.shapeGroup = new THREE.Group();
+        this.shapeGroup.add(this.wireframeMesh);
+        this.shapeGroup.add(this.pointsMesh);
+        this.scene.add(this.shapeGroup);
+        this.createRings();
+        this.createParticles();
+        this.saveBasePositions();
+      }
+
+      createRings() {
+        this.ringsGroup = new THREE.Group();
+        this.rings = [];
+        for (let i = 0; i < 4; i++) {
+          const curve = new THREE.EllipseCurve(0, 0, 3 + i * 0.6, 3 + i * 0.6, 0, 2 * Math.PI, false, 0);
+          const pts = curve.getPoints(100);
+          const rGeo = new THREE.BufferGeometry().setFromPoints(pts);
+          const rMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
+          const rLine = new THREE.LineLoop(rGeo, rMat);
+          rLine.rotation.x = Math.random() * Math.PI;
+          rLine.rotation.y = Math.random() * Math.PI;
+          rLine.userData = {
+            speedX: (Math.random() - 0.5) * 0.01,
+            speedY: (Math.random() - 0.5) * 0.01,
+            speedZ: (Math.random() - 0.5) * 0.01,
+            material: rMat
+          };
+          this.rings.push(rLine);
+          this.ringsGroup.add(rLine);
+        }
+        this.scene.add(this.ringsGroup);
+      }
+
+      createParticles() {
+        this.particleCount = 800;
+        this.particleGeo = new THREE.BufferGeometry();
+        this.particlePositions = new Float32Array(this.particleCount * 3);
+        this.particleBaseDirs = new Float32Array(this.particleCount * 3);
+        for (let i = 0; i < this.particleCount; i++) {
+          const u = Math.random(), v = Math.random();
+          const theta = u * 2.0 * Math.PI;
+          const phi = Math.acos(2.0 * v - 1.0);
+          const sinPhi = Math.sin(phi);
+          this.particleBaseDirs[i * 3] = sinPhi * Math.cos(theta);
+          this.particleBaseDirs[i * 3 + 1] = sinPhi * Math.sin(theta);
+          this.particleBaseDirs[i * 3 + 2] = Math.cos(phi);
+        }
+        this.particleGeo.setAttribute('position', new THREE.BufferAttribute(this.particlePositions, 3));
+        this.particleMat = new THREE.PointsMaterial({
+          color: 0xffffff, size: 0.06, transparent: true, opacity: 0,
+          blending: THREE.AdditiveBlending, depthWrite: false
+        });
+        this.particlesObj = new THREE.Points(this.particleGeo, this.particleMat);
+        this.scene.add(this.particlesObj);
+      }
+
+      saveBasePositions() {
+        const positionAttribute = this.geometry.attributes.position;
+        this.vertexCount = positionAttribute.count;
+        this.basePositions = new Float32Array(this.vertexCount * 3);
+        for (let i = 0; i < this.vertexCount; i++) {
+          const x = positionAttribute.getX(i), y = positionAttribute.getY(i), z = positionAttribute.getZ(i);
+          const length = Math.sqrt(x * x + y * y + z * z);
+          this.basePositions[i * 3] = x / length;
+          this.basePositions[i * 3 + 1] = y / length;
+          this.basePositions[i * 3 + 2] = z / length;
+        }
+      }
+
+      setTargetStage(stage) {
+        const targets = {
+          0: { scale: 0.15, noiseAmount: 0.01, rotationSpeed: 0.001, ringAlpha: 0.0, ringScale: 0.5, particleAlpha: 0.0, particleSpread: 0.0 },
+          1: { scale: 1.5, noiseAmount: 0.35, rotationSpeed: 0.006, ringAlpha: 0.0, ringScale: 0.8, particleAlpha: 0.0, particleSpread: 0.0 },
+          2: { scale: 1.5, noiseAmount: 0.45, rotationSpeed: 0.008, ringAlpha: 0.1, ringScale: 1.0, particleAlpha: 0.3, particleSpread: 2.0 },
+          3: { scale: 1.1, noiseAmount: 0.15, rotationSpeed: 0.015, ringAlpha: 0.3, ringScale: 1.2, particleAlpha: 0.8, particleSpread: 5.0 }
+        };
+        if (targets[stage]) this.targetParams = targets[stage];
+      }
+
+      update() {
+        const time = this.clock.getElapsedTime();
+        const lerpSpeed = 0.03;
+        this.currentParams.scale += (this.targetParams.scale - this.currentParams.scale) * lerpSpeed;
+        this.currentParams.noiseAmount += (this.targetParams.noiseAmount - this.currentParams.noiseAmount) * lerpSpeed;
+        this.currentParams.rotationSpeed += (this.targetParams.rotationSpeed - this.currentParams.rotationSpeed) * lerpSpeed;
+        this.currentParams.ringAlpha += (this.targetParams.ringAlpha - this.currentParams.ringAlpha) * lerpSpeed;
+        this.currentParams.ringScale += (this.targetParams.ringScale - this.currentParams.ringScale) * lerpSpeed;
+        this.currentParams.particleAlpha += (this.targetParams.particleAlpha - this.currentParams.particleAlpha) * lerpSpeed;
+        this.currentParams.particleSpread += (this.targetParams.particleSpread - this.currentParams.particleSpread) * lerpSpeed;
+
+        const positionAttribute = this.geometry.attributes.position;
+        for (let i = 0; i < this.vertexCount; i++) {
+          const nx = this.basePositions[i * 3], ny = this.basePositions[i * 3 + 1], nz = this.basePositions[i * 3 + 2];
+          const noise1 = Math.sin(nx * 3 + time * 1.5) * Math.cos(ny * 3 + time * 1.5) * Math.sin(nz * 3 + time * 1.5);
+          const noise2 = Math.sin(nx * 8 - time) * Math.cos(ny * 8 - time) * 0.5;
+          const offset = this.currentParams.noiseAmount * (noise1 + noise2);
+          const finalRadius = 2.0 * this.currentParams.scale * (1.0 + offset);
+          positionAttribute.setXYZ(i, nx * finalRadius, ny * finalRadius, nz * finalRadius);
+        }
+        positionAttribute.needsUpdate = true;
+
+        this.ringsGroup.scale.set(this.currentParams.ringScale, this.currentParams.ringScale, this.currentParams.ringScale);
+        this.rings.forEach(ring => {
+          ring.userData.material.opacity = this.currentParams.ringAlpha;
+          ring.rotation.x += ring.userData.speedX;
+          ring.rotation.y += ring.userData.speedY;
+          ring.rotation.z += ring.userData.speedZ;
+        });
+
+        this.particleMat.opacity = this.currentParams.particleAlpha;
+        if (this.currentParams.particleAlpha > 0.01) {
+          const pPositions = this.particleGeo.attributes.position.array;
+          const baseRad = 2.0 * this.currentParams.scale;
+          for (let i = 0; i < this.particleCount; i++) {
+            const dirX = this.particleBaseDirs[i * 3], dirY = this.particleBaseDirs[i * 3 + 1], dirZ = this.particleBaseDirs[i * 3 + 2];
+            const pulse = (Math.sin(time * 2 + i) * 0.5 + 0.5);
+            const dist = baseRad + this.currentParams.particleSpread * pulse;
+            pPositions[i * 3] = dirX * dist;
+            pPositions[i * 3 + 1] = dirY * dist;
+            pPositions[i * 3 + 2] = dirZ * dist;
+          }
+          this.particleGeo.attributes.position.needsUpdate = true;
+          this.particlesObj.rotation.y += this.currentParams.rotationSpeed * 0.2;
+          this.particlesObj.rotation.x += this.currentParams.rotationSpeed * 0.1;
+        }
+
+        this.shapeGroup.rotation.y += this.currentParams.rotationSpeed;
+        this.shapeGroup.rotation.z += this.currentParams.rotationSpeed * 0.5;
+        this.targetRotationX = this.mouseY * 0.5;
+        this.targetRotationY = this.mouseX * 0.5;
+        this.shapeGroup.rotation.x += (this.targetRotationX - this.shapeGroup.rotation.x) * 0.05;
+      }
+
+      render() { this.renderer.render(this.scene, this.camera); }
+      onResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+      dispose() {
+        if (this.renderer) { this.renderer.dispose(); this.renderer.domElement.remove(); }
+      }
+    }
+
     // ═══════════════════════════════════════════════════
     // 配置
     // ═══════════════════════════════════════════════════
@@ -273,6 +416,10 @@
         climax: false
       },
       narrativeTimer: null,        // 文案显示定时器
+      // 第一章触发阈值（可调整，能量范围0-10000）
+      motionThreshold: 1500,       // 抖动阈值：低于此值视为静止
+      developThreshold: 4000,      // 发展阈值：需要明显的手势才触发
+      climaxThreshold: 7500,       // 高潮阈值：需要强烈的双手互动
     };
     
     // ═══════════════════════════════════════════════════
@@ -741,6 +888,17 @@
         this.dpr = window.devicePixelRatio || 1;
         this.resize();
         window.addEventListener('resize', () => this.resize());
+        
+        // 创建第一章 Three.js 视觉系统
+        this.chapter1 = new Chapter1Point(document.body);
+        this.chapter1Canvas = this.chapter1.renderer.domElement;
+        this.chapter1Canvas.style.position = 'fixed';
+        this.chapter1Canvas.style.top = '0';
+        this.chapter1Canvas.style.left = '0';
+        this.chapter1Canvas.style.width = '100%';
+        this.chapter1Canvas.style.height = '100%';
+        this.chapter1Canvas.style.zIndex = '0';
+        
         this.animate();
       }
       
@@ -760,26 +918,43 @@
         
         this.updateLogic();
         
-        // 清屏
-        this.ctx.fillStyle = '#000';
-        this.ctx.fillRect(0, 0, this.width, this.height);
-        
         const cx = this.width / 2;
         const cy = this.height / 2;
         
         // 根据 narrativePhase 决定绘制内容
         if (STATE.narrativePhase === 'preface') {
-          // preface 阶段：全黑背景，不绘制任何波形
+          // preface 阶段：全黑背景，隐藏 Three.js canvas，显示 2D canvas
+          this.canvas.style.display = 'block';
+          this.chapter1Canvas.style.display = 'none';
+          this.ctx.fillStyle = '#000';
+          this.ctx.fillRect(0, 0, this.width, this.height);
         } else if (STATE.narrativePhase === 'ch1') {
-          // 第一章：绘制点
-          drawChapter1(this.ctx, cx, cy, this.width, this.height);
+          // 第一章：使用 Three.js
+          this.canvas.style.display = 'none';
+          this.chapter1Canvas.style.display = 'block';
+          this.chapter1.update();
+          this.chapter1.render();
+          return; // 跳过 2D 渲染和 UI 更新已在 updateLogic 中处理
         } else if (STATE.narrativePhase === 'ch2') {
           // 第二章：绘制线
+          this.canvas.style.display = 'block';
+          this.chapter1Canvas.style.display = 'none';
+          this.ctx.fillStyle = '#000';
+          this.ctx.fillRect(0, 0, this.width, this.height);
           drawChapter2(this.ctx, cx, cy, this.width, this.height);
         } else if (STATE.chapter >= 1 && STATE.chapter <= 3) {
           // 兼容旧逻辑
+          this.canvas.style.display = 'block';
+          this.chapter1Canvas.style.display = 'none';
+          this.ctx.fillStyle = '#000';
+          this.ctx.fillRect(0, 0, this.width, this.height);
           switch (STATE.chapter) {
-            case 1: drawChapter1(this.ctx, cx, cy, this.width, this.height); break;
+            case 1: 
+              this.canvas.style.display = 'none';
+              this.chapter1Canvas.style.display = 'block';
+              this.chapter1.update();
+              this.chapter1.render();
+              return;
             case 2: drawChapter2(this.ctx, cx, cy, this.width, this.height); break;
             case 3: drawChapter3(this.ctx, cx, cy, this.width, this.height); break;
           }
@@ -794,6 +969,7 @@
       updateLogic() {
         if (STATE.manualOverride) return;
         
+        const hasMain = ctrl[0].connected;
         const hasSub = ctrl[1].connected;
         const maxE = Math.max(STATE.mainEnergy, STATE.subEnergy);
         const totalE = (STATE.mainEnergy + STATE.subEnergy) / 2;
@@ -819,20 +995,54 @@
         if (STATE.narrativePhase.startsWith('ch')) {
           updateNarrativeByEnergy(totalE, hasSub);
         }
+        
+        // 第一章 Three.js 视觉系统的 ESP32 状态映射
+        // 设计原则：添加抖动阈值，确保平滑过渡，不瞬间切换
+        if (STATE.narrativePhase === 'ch1' && this.chapter1) {
+          const mainE = STATE.mainEnergy;
+          const subE = STATE.subEnergy;
+          
+          // 使用可调整的阈值
+          const motionThreshold = STATE.motionThreshold;
+          const developThreshold = STATE.developThreshold;
+          const climaxThreshold = STATE.climaxThreshold;
+          
+          // 计算有效运动量（考虑主手和副手）
+          const effectiveMainEnergy = mainE > motionThreshold ? mainE : 0;
+          const effectiveSubEnergy = subE > motionThreshold ? subE : 0;
+          const effectiveTotal = (effectiveMainEnergy + effectiveSubEnergy) / 2;
+          
+          // 确定目标阶段（使用有效能量）
+          let targetStage = 0;
+          
+          if (hasSub && effectiveTotal >= climaxThreshold) {
+            // 高潮：双手连接 + 有效总能量 >= 阈值
+            targetStage = 3;
+          } else if (hasMain && effectiveMainEnergy >= developThreshold) {
+            // 发展：主手连接 + 有效主手能量 >= 阈值
+            targetStage = 2;
+          } else if (hasMain && effectiveMainEnergy > 0) {
+            // 原初：主手连接 + 有效能量 > 0
+            targetStage = 1;
+          }
+          // 否则 targetStage = 0（静止原点）
+          
+          this.chapter1.setTargetStage(targetStage);
+          
+          // 更新调试显示
+          const elEnergy = document.getElementById('debug-energy');
+          const elStage = document.getElementById('debug-stage');
+          if (elEnergy) elEnergy.textContent = Math.round(effectiveMainEnergy) + '/' + Math.round(effectiveSubEnergy);
+          if (elStage) elStage.textContent = targetStage;
+        }
       }
       
       updateUI() {
-        const P = STATE.morphProgress;
-        const layers = Math.floor(1 + P * 29);
-        
-        const elLayers = document.getElementById('debug-layers');
-        const elP = document.getElementById('debug-p');
+        // 更新右下角能量条（能量范围0-10000，显示百分比）
         const elEnergy = document.getElementById('energy-fill');
         const elVal = document.getElementById('energy-value');
-        
-        if (elLayers) elLayers.textContent = layers;
-        if (elP) elP.textContent = P.toFixed(2) + ' | 俯瞰:' + (flyoverSystem.isActive ? 'ON' : 'OFF') + ' Z:' + flyoverSystem.cameraZ.toFixed(2);
-        if (elEnergy) elEnergy.style.width = (STATE.mainEnergy + STATE.subEnergy) / 2 + '%';
+        const energyPercent = Math.min(100, (STATE.mainEnergy + STATE.subEnergy) / 200); // 20000 = 100%
+        if (elEnergy) elEnergy.style.width = energyPercent + '%';
         if (elVal) elVal.textContent = Math.round((STATE.mainEnergy + STATE.subEnergy) / 2);
       }
     }
@@ -853,7 +1063,8 @@
     
     function updateEnergy(accMag, gyroMag, isMain) {
       const net = Math.max(0, accMag - 9.8);
-      const instant = Math.min(100, (net + gyroMag * 0.5) * 8);
+      // 能量上限调整为10000，获得更广泛的可调节范围
+      const instant = Math.min(10000, (net + gyroMag * 0.5) * 800);
       const buf = isMain ? STATE.mainBuf : STATE.subBuf;
       buf.push(instant);
       if (buf.length > CONFIG.smoothFrames) buf.shift();
@@ -1056,22 +1267,23 @@
       const cnEl = overlay.querySelector('.narrative-cn');
       const enEl = overlay.querySelector('.narrative-en');
       
-      // 确定子阶段（第一章点：单手>50发展部, 双手>70高潮）
+      // 确定子阶段（能量范围0-10000：单手>4000发展部, 双手总和>7500高潮）
       let newSubPhase = '';
       const isChapter1 = STATE.narrativePhase === 'ch1';
       
       if (isChapter1) {
-        // 第一章：点 的特殊阈值
-        if (STATE.mainEnergy > 50 && totalE < 70) {
+        // 第一章：点 的特殊阈值（与视觉阈值保持一致）
+        const totalE = (STATE.mainEnergy + STATE.subEnergy) / 2;
+        if (STATE.mainEnergy > 4000 && totalE < 7500) {
           newSubPhase = 'developing';
-        } else if (hasSub && totalE >= 70) {
+        } else if (hasSub && totalE >= 7500) {
           newSubPhase = 'climax';
         }
       } else {
-        // 其他章节保持原阈值
-        if (energy > 30 && energy < 70) {
+        // 其他章节保持原阈值（能量范围0-10000）
+        if (energy > 3000 && energy < 7500) {
           newSubPhase = 'developing';
-        } else if (energy >= 70) {
+        } else if (energy >= 7500) {
           newSubPhase = 'climax';
         }
       }

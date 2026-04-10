@@ -2573,8 +2573,10 @@
           
           this.chapter1.setTargetStage(targetStage);
           
-          // 触发高潮文案（当进入 Stage 3 时）
-          if (targetStage === 3) {
+          // 触发文案：状态二发展文案，状态三高潮文案
+          if (targetStage === 2) {
+            showDevelopingText();
+          } else if (targetStage === 3) {
             showClimaxText();
           }
           
@@ -2614,8 +2616,10 @@
           
           this.chapter2.setTargetStage(targetStage);
           
-          // 触发高潮文案（当进入 Stage 3 时）
-          if (targetStage === 3) {
+          // 触发文案：状态二发展文案，状态三高潮文案
+          if (targetStage === 2) {
+            showDevelopingText();
+          } else if (targetStage === 3) {
             showClimaxText();
           }
           
@@ -2657,8 +2661,10 @@
           
           this.chapter3.setPhase(targetPhase);
           
-          // 触发高潮文案（当进入 Phase 4 时）
-          if (targetPhase === 4) {
+          // 触发文案：Phase 3发展文案，Phase 4高潮文案
+          if (targetPhase === 3) {
+            showDevelopingText();
+          } else if (targetPhase === 4) {
             showClimaxText();
           }
           
@@ -3101,6 +3107,35 @@
       cnEl.textContent = cn;
       enEl.textContent = en;
       overlay.classList.add('visible');
+    }
+    
+    // 显示发展文案（绑定视觉状态二）- 点Stage2, 线Stage2, 面Phase3
+    function showDevelopingText() {
+      const phase = STATE.narrativePhase;
+      const config = CHAPTER_CONFIG[phase];
+      if (!config || !config.textDeveloping || !config.textDeveloping.cn) return;
+      
+      // 检查是否已经显示过
+      if (STATE.narrativeTriggered.developing) return;
+      
+      STATE.narrativeTriggered.developing = true;
+      STATE.textIsShowing = true;
+      
+      const overlay = document.getElementById('narrative-overlay');
+      const cnEl = overlay.querySelector('.narrative-cn');
+      const enEl = overlay.querySelector('.narrative-en');
+      
+      cnEl.textContent = config.textDeveloping.cn;
+      enEl.textContent = config.textDeveloping.en;
+      overlay.classList.add('visible');
+      
+      // 5秒后隐藏
+      if (STATE.narrativeTimer) clearTimeout(STATE.narrativeTimer);
+      STATE.narrativeTimer = setTimeout(() => {
+        overlay.classList.remove('visible');
+        STATE.textIsShowing = false;
+        STATE.textLastShownTime = Date.now();
+      }, 5000);
     }
     
     // 显示高潮文案（绑定视觉状态三）- 只在进入 Stage 3/Phase 4 时触发

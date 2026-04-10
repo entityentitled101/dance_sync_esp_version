@@ -1879,6 +1879,9 @@
       spiralFadingDuration: 5000,    // 回落等待时间：需要持续静止5秒
       spiralFadingStartTime: null,   // 回落计时开始时间
       spiralFadingTriggered: false,  // 回落已触发标志
+      // 章节切换时屏蔽副手数据
+      subHandBlockDuration: 6000,    // 屏蔽副手数据时间：6秒
+      subHandBlockEndTime: null,     // 屏蔽结束时间
       // 文案缓冲控制
       textDisplayMinTime: 5000,      // 文案最少显示时间：5秒
       textCooldownTime: 2500,        // 文案切换冷却时间：2.5秒
@@ -2727,6 +2730,11 @@
     }
     
     function updateEnergy(accMag, gyroMag, isMain) {
+      // 双重检查：章节切换时屏蔽副手数据
+      if (!isMain && STATE.subHandBlockEndTime && Date.now() < STATE.subHandBlockEndTime) {
+        return;
+      }
+      
       const net = Math.max(0, accMag - 9.8);
       // 能量上限调整为10000，获得更广泛的可调节范围
       const instant = Math.min(10000, (net + gyroMag * 0.5) * 800);
@@ -2793,6 +2801,19 @@
     
     function onSensorData(idx, data) {
       const isMain = idx === 0;
+      
+      // 章节切换时屏蔽副手数据（6秒），避免跨章节能量继承
+      if (!isMain && STATE.subHandBlockEndTime) {
+        const now = Date.now();
+        if (now < STATE.subHandBlockEndTime) {
+          // 屏蔽期内，忽略副手数据
+          return;
+        } else {
+          // 屏蔽结束，清除计时器
+          STATE.subHandBlockEndTime = null;
+        }
+      }
+      
       let ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0;
       if (data.ax !== undefined) {
         ax = +data.ax; ay = +data.ay; az = +data.az;
@@ -3020,6 +3041,9 @@
         clearTimeout(STATE.prefaceTimer);
         STATE.prefaceTimer = null;
       }
+      
+      // 章节切换时屏蔽副手数据6秒，避免跨章节能量继承
+      STATE.subHandBlockEndTime = Date.now() + STATE.subHandBlockDuration;
       
       // 如果切换到 ch4，重置回落状态
       if (chapter === 'ch4') {

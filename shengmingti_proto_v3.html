@@ -6,6 +6,11 @@
   <title>声·命体 —— v3.0</title>
   <!-- Three.js 库 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Three.js 后期处理模块 -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
   <!-- GSAP 动画库 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
   <style>
@@ -140,18 +145,18 @@
     <div class="section-title" style="margin-top: 15px;">触发阈值 (能量范围0-10000)</div>
     <div class="slider-row">
       <label>抖动阈值</label>
-      <input type="range" id="threshold-motion" min="100" max="5000" value="1500" oninput="STATE.motionThreshold = parseInt(this.value); document.getElementById('val-motion').textContent = this.value">
-      <span class="value" id="val-motion">1500</span>
+      <input type="range" id="threshold-motion" min="1000" max="8000" value="5000" oninput="STATE.motionThreshold = parseInt(this.value); document.getElementById('val-motion').textContent = this.value">
+      <span class="value" id="val-motion">5000</span>
     </div>
     <div class="slider-row">
       <label>发展阈值</label>
-      <input type="range" id="threshold-develop" min="1000" max="8000" value="4000" oninput="STATE.developThreshold = parseInt(this.value); document.getElementById('val-develop').textContent = this.value">
-      <span class="value" id="val-develop">4000</span>
+      <input type="range" id="threshold-develop" min="1000" max="8000" value="5000" oninput="STATE.developThreshold = parseInt(this.value); document.getElementById('val-develop').textContent = this.value">
+      <span class="value" id="val-develop">5000</span>
     </div>
     <div class="slider-row">
       <label>高潮阈值</label>
-      <input type="range" id="threshold-climax" min="5000" max="9500" value="7500" oninput="STATE.climaxThreshold = parseInt(this.value); document.getElementById('val-climax').textContent = this.value">
-      <span class="value" id="val-climax">7500</span>
+      <input type="range" id="threshold-climax" min="1000" max="8000" value="5000" oninput="STATE.climaxThreshold = parseInt(this.value); document.getElementById('val-climax').textContent = this.value">
+      <span class="value" id="val-climax">5000</span>
     </div>
   </div>
   
@@ -159,7 +164,7 @@
     <button class="chapter-btn active" id="ch-1" onclick="jumpToChapter('ch1')">点</button>
     <button class="chapter-btn" id="ch-2" onclick="jumpToChapter('ch2')">线</button>
     <button class="chapter-btn" id="ch-3" onclick="jumpToChapter('ch3')">面</button>
-    <button class="chapter-btn locked" id="ch-4" onclick="" disabled>螺旋</button>
+    <button class="chapter-btn" id="ch-4" onclick="jumpToChapter('ch4')">螺旋</button>
     <button id="reset-btn" onclick="resetSystem()">重置</button>
   </div>
   
@@ -1122,6 +1127,687 @@
     }
 
     // ═══════════════════════════════════════════════════
+    // 第四章「螺旋」Three.js 视觉系统
+    // 基于 gemini-frontend/all-in-one.html 完整复制
+    // ═══════════════════════════════════════════════════
+
+    class Chapter4Spiral {
+      constructor(container) {
+        // === 核心硬件预制接口 (SymphonyAPI) ===
+        this.symphonySpeed = 0.0;
+        this.sysTime = 0;
+        
+        // === 场景与相机基础设置 ===
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x000000);
+        this.scene.fog = new THREE.FogExp2(0x000000, 0.05);
+        this.fogState = { density: 0.05 };
+
+        this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
+        this.camera.position.set(0, 0, 8);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(this.renderer.domElement);
+
+        this.clock = new THREE.Clock();
+        
+        // 鼠标捕获
+        this.mouseX = 0; this.mouseY = 0;
+        window.addEventListener('mousemove', (e) => {
+          this.mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+          this.mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        // === 后期特效：RGB 色散炫光 ===
+        this.composer = new THREE.EffectComposer(this.renderer);
+        this.renderPass = new THREE.RenderPass(this.scene, this.camera);
+        this.composer.addPass(this.renderPass);
+
+        this.RGBShiftShader = {
+          uniforms: {
+            "tDiffuse": { value: null },
+            "amount": { value: 0.0 },
+            "angle": { value: 0.0 }
+          },
+          vertexShader: `
+            varying vec2 vUv;
+            void main() {
+              vUv = uv;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform sampler2D tDiffuse;
+            uniform float amount;
+            uniform float angle;
+            varying vec2 vUv;
+            void main() {
+              vec2 offset = amount * vec2(cos(angle), sin(angle));
+              vec4 cr = texture2D(tDiffuse, vUv + offset);
+              vec4 cga = texture2D(tDiffuse, vUv);
+              vec4 cb = texture2D(tDiffuse, vUv - offset);
+              vec3 finalColor = vec3(cr.r, cga.g, cb.b);
+              finalColor += vec3(amount * 2.0);
+              gl_FragColor = vec4(finalColor, cga.a);
+            }
+          `
+        };
+        this.rgbShiftPass = new THREE.ShaderPass(this.RGBShiftShader);
+        this.composer.addPass(this.rgbShiftPass);
+
+        // === 维护三个主群组 ===
+        this.pt_Master = new THREE.Group();
+        this.ln_Master = new THREE.Group();
+        this.fc_Master = new THREE.Group();
+        this.scene.add(this.pt_Master);
+        this.scene.add(this.ln_Master);
+        this.scene.add(this.fc_Master);
+
+        this.pt_Master.visible = false; this.pt_Master.scale.setScalar(0.001);
+        this.ln_Master.visible = false; this.ln_Master.scale.setScalar(0.001);
+        this.fc_Master.visible = false; this.fc_Master.scale.setScalar(0.001);
+
+        this.currentDimension = null;
+
+        this.initPointSystem();
+        this.initLineSystem();
+        this.initFaceSystem();
+
+        // === 回落与文字系统 ===
+        this.isFading = false;
+        this.fadeProgress = 0;
+        this.climaxStartTime = null;
+        this.textPhase = 0; // 0: 正常, 1: 显示第一行, 2: 黑屏, 3: 显示第二行, 4: 结束
+        this.textTimer = null;
+        
+        window.addEventListener('resize', () => this.onResize());
+      }
+
+      // =======================================================
+      // 子系统一：原初之点 (Point Morphing)
+      // =======================================================
+      initPointSystem() {
+        const pt_geometry = new THREE.IcosahedronGeometry(2, 16);
+        this.pt_wireframeMesh = new THREE.Mesh(pt_geometry, new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.15 }));
+        this.pt_pointsMesh = new THREE.Points(pt_geometry, new THREE.PointsMaterial({ color: 0xffffff, size: 0.04, transparent: true, opacity: 0.8 }));
+        this.pt_shapeGroup = new THREE.Group();
+        this.pt_shapeGroup.add(this.pt_wireframeMesh);
+        this.pt_shapeGroup.add(this.pt_pointsMesh);
+        this.pt_Master.add(this.pt_shapeGroup);
+
+        this.pt_ringsGroup = new THREE.Group();
+        this.pt_rings = [];
+        for (let i = 0; i < 4; i++) {
+          const curve = new THREE.EllipseCurve(0, 0, 3 + i * 0.6, 3 + i * 0.6, 0, 2 * Math.PI, false, 0);
+          const rLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(curve.getPoints(100)), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }));
+          rLine.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+          rLine.userData = { speedX: (Math.random() - 0.5) * 0.01, speedY: (Math.random() - 0.5) * 0.01, speedZ: (Math.random() - 0.5) * 0.01, material: rLine.material };
+          this.pt_rings.push(rLine);
+          this.pt_ringsGroup.add(rLine);
+        }
+        this.pt_Master.add(this.pt_ringsGroup);
+
+        this.pt_particleCount = 800;
+        this.pt_particleGeo = new THREE.BufferGeometry();
+        this.pt_particlePositions = new Float32Array(this.pt_particleCount * 3);
+        this.pt_particleBaseDirs = new Float32Array(this.pt_particleCount * 3);
+        for (let i = 0; i < this.pt_particleCount; i++) {
+          const phi = Math.acos(2.0 * Math.random() - 1.0);
+          const theta = Math.random() * 2.0 * Math.PI;
+          this.pt_particleBaseDirs[i * 3] = Math.sin(phi) * Math.cos(theta);
+          this.pt_particleBaseDirs[i * 3 + 1] = Math.sin(phi) * Math.sin(theta);
+          this.pt_particleBaseDirs[i * 3 + 2] = Math.cos(phi);
+        }
+        this.pt_particleGeo.setAttribute('position', new THREE.BufferAttribute(this.pt_particlePositions, 3));
+        this.pt_particleMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.06, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+        this.pt_particlesObj = new THREE.Points(this.pt_particleGeo, this.pt_particleMat);
+        this.pt_Master.add(this.pt_particlesObj);
+
+        const pt_posAttr = pt_geometry.attributes.position;
+        this.pt_basePos = new Float32Array(pt_posAttr.count * 3);
+        for (let i = 0; i < pt_posAttr.count; i++) {
+          const x = pt_posAttr.getX(i), y = pt_posAttr.getY(i), z = pt_posAttr.getZ(i);
+          const len = Math.sqrt(x * x + y * y + z * z);
+          this.pt_basePos[i * 3] = x / len;
+          this.pt_basePos[i * 3 + 1] = y / len;
+          this.pt_basePos[i * 3 + 2] = z / len;
+        }
+        this.pt_posAttr = pt_posAttr;
+
+        this.pt_stage = 1;
+        this.pt_params = { scale: 0.15, noiseAmount: 0.01, rotationSpeed: 0.001, ringAlpha: 0.0, ringScale: 0.5, particleAlpha: 0.0, particleSpread: 0.0 };
+        this.pt_targets = {
+          1: { scale: 0.15, noiseAmount: 0.01, rotationSpeed: 0.001, ringAlpha: 0.0, ringScale: 0.5, particleAlpha: 0.0, particleSpread: 0.0 },
+          2: { scale: 1.5, noiseAmount: 0.35, rotationSpeed: 0.006, ringAlpha: 0.0, ringScale: 0.8, particleAlpha: 0.0, particleSpread: 0.0 },
+          3: { scale: 1.1, noiseAmount: 0.15, rotationSpeed: 0.015, ringAlpha: 0.3, ringScale: 1.2, particleAlpha: 0.8, particleSpread: 5.0 }
+        };
+      }
+
+      pt_update(time) {
+        if (!this.pt_Master.visible) return;
+        const target = this.pt_targets[this.pt_stage];
+        const spd = 0.03 * gsap.globalTimeline.timeScale();
+
+        this.pt_params.scale += (target.scale - this.pt_params.scale) * spd;
+        this.pt_params.noiseAmount += (target.noiseAmount - this.pt_params.noiseAmount) * spd;
+        this.pt_params.rotationSpeed += (target.rotationSpeed - this.pt_params.rotationSpeed) * spd;
+        this.pt_params.ringAlpha += (target.ringAlpha - this.pt_params.ringAlpha) * spd;
+        this.pt_params.ringScale += (target.ringScale - this.pt_params.ringScale) * spd;
+        this.pt_params.particleAlpha += (target.particleAlpha - this.pt_params.particleAlpha) * spd;
+        this.pt_params.particleSpread += (target.particleSpread - this.pt_params.particleSpread) * spd;
+
+        for (let i = 0; i < this.pt_posAttr.count; i++) {
+          const nx = this.pt_basePos[i * 3], ny = this.pt_basePos[i * 3 + 1], nz = this.pt_basePos[i * 3 + 2];
+          const noise = Math.sin(nx * 3 + time * 1.5) * Math.cos(ny * 3 + time * 1.5) * Math.sin(nz * 3 + time * 1.5) + Math.sin(nx * 8 - time) * Math.cos(ny * 8 - time) * 0.5;
+          const r = 2.0 * this.pt_params.scale * (1.0 + this.pt_params.noiseAmount * noise);
+          this.pt_posAttr.setXYZ(i, nx * r, ny * r, nz * r);
+        }
+        this.pt_posAttr.needsUpdate = true;
+
+        this.pt_ringsGroup.scale.setScalar(this.pt_params.ringScale);
+        this.pt_rings.forEach(r => {
+          r.userData.material.opacity = this.pt_params.ringAlpha;
+          r.rotation.x += r.userData.speedX;
+          r.rotation.y += r.userData.speedY;
+          r.rotation.z += r.userData.speedZ;
+        });
+
+        this.pt_particleMat.opacity = this.pt_params.particleAlpha;
+        if (this.pt_params.particleAlpha > 0.01) {
+          const pPos = this.pt_particleGeo.attributes.position.array;
+          const baseRad = 2.0 * this.pt_params.scale;
+          for (let i = 0; i < this.pt_particleCount; i++) {
+            const dist = baseRad + this.pt_params.particleSpread * (Math.sin(time * 2 + i) * 0.5 + 0.5);
+            pPos[i * 3] = this.pt_particleBaseDirs[i * 3] * dist;
+            pPos[i * 3 + 1] = this.pt_particleBaseDirs[i * 3 + 1] * dist;
+            pPos[i * 3 + 2] = this.pt_particleBaseDirs[i * 3 + 2] * dist;
+          }
+          this.pt_particleGeo.attributes.position.needsUpdate = true;
+          this.pt_particlesObj.rotation.y += this.pt_params.rotationSpeed * 0.2;
+          this.pt_particlesObj.rotation.x += this.pt_params.rotationSpeed * 0.1;
+        }
+
+        this.pt_shapeGroup.rotation.y += this.pt_params.rotationSpeed;
+        this.pt_shapeGroup.rotation.z += this.pt_params.rotationSpeed * 0.5;
+        this.pt_shapeGroup.rotation.x += (this.mouseY * 0.5 - this.pt_shapeGroup.rotation.x) * 0.05;
+      }
+
+      // =======================================================
+      // 子系统二：流转之线 (Line Morphing Terrain)
+      // =======================================================
+      initLineSystem() {
+        this.ln_CONFIG = { THICKNESS: 1.2, R_MIN: 32, R_MAX: 48 };
+        this.ln_numLines = 65;
+        this.ln_numPoints = 160;
+        this.ln_linesData = [];
+        this.ln_celestials = [];
+
+        this.ln_mainGroup = new THREE.Group();
+        this.ln_celestialGroup = new THREE.Group();
+        this.ln_mainGroup.add(this.ln_celestialGroup);
+        this.ln_celestialGroup.position.y = -this.ln_CONFIG.THICKNESS / 2;
+        this.ln_Master.add(this.ln_mainGroup);
+
+        const ln_lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+        const ln_meshMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, depthWrite: true, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+
+        for (let i = 0; i < this.ln_numLines; i++) {
+          const lGeo = new THREE.BufferGeometry(), mGeo = new THREE.BufferGeometry();
+          lGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.ln_numPoints * 3), 3));
+          const mPos = new Float32Array(this.ln_numPoints * 2 * 3), indices = [];
+          for (let j = 0; j < this.ln_numPoints - 1; j++) {
+            const t1 = j * 2, b1 = j * 2 + 1, t2 = (j + 1) * 2, b2 = (j + 1) * 2 + 1;
+            indices.push(t1, b1, t2, b1, b2, t2);
+          }
+          mGeo.setAttribute('position', new THREE.BufferAttribute(mPos, 3));
+          mGeo.setIndex(indices);
+          this.ln_mainGroup.add(new THREE.Mesh(mGeo, ln_meshMat));
+          this.ln_mainGroup.add(new THREE.Line(lGeo, ln_lineMat));
+          this.ln_linesData.push({ lineGeom: lGeo, meshGeom: mGeo });
+        }
+
+        this.ln_baseBoxGroup = new THREE.Group();
+        this.ln_baseBoxGeo = new THREE.BufferGeometry();
+        this.ln_baseBoxGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(24), 3));
+        this.ln_baseBoxGeo.setIndex([0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7]);
+        this.ln_baseBoxLines = new THREE.LineSegments(this.ln_baseBoxGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }));
+
+        const ln_solidGeo = new THREE.BufferGeometry();
+        ln_solidGeo.setAttribute('position', this.ln_baseBoxGeo.attributes.position);
+        ln_solidGeo.setIndex([0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7, 3, 2, 1, 3, 1, 0]);
+        this.ln_baseBoxSolid = new THREE.Mesh(ln_solidGeo, new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 4 }));
+        this.ln_baseBoxGroup.add(this.ln_baseBoxLines);
+        this.ln_baseBoxGroup.add(this.ln_baseBoxSolid);
+        this.ln_mainGroup.add(this.ln_baseBoxGroup);
+
+        const ln_cMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
+        const ln_cMeshes = [
+          new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(1.6, 10, 10)), ln_cMat.clone()),
+          new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.CylinderGeometry(1.2, 1.2, 2.0, 10, 3)), ln_cMat.clone()),
+          new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.TetrahedronGeometry(1.8)), ln_cMat.clone()),
+          (() => { const g = new THREE.Group(); g.add(new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.BoxGeometry(1.5, 1.5, 1.5, 2, 2, 2)), ln_cMat.clone())); return g; })(),
+          new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.OctahedronGeometry(1.6)), ln_cMat.clone()),
+          new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(1.5)), ln_cMat.clone())
+        ];
+
+        for (let i = 0; i < 6; i++) {
+          const orbitGroup = new THREE.Group();
+          const radius = this.ln_CONFIG.R_MIN + Math.random() * (this.ln_CONFIG.R_MAX - this.ln_CONFIG.R_MIN);
+          orbitGroup.rotation.set((Math.random() - 0.5) * 0.8, 0, (Math.random() - 0.5) * 0.8);
+
+          const trailPts = [];
+          for (let j = 0; j <= 64; j++) { const a = (j / 64) * Math.PI * 2; trailPts.push(Math.cos(a) * radius, 0, Math.sin(a) * radius); }
+          const trailLine = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(trailPts, 3)), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
+          orbitGroup.add(trailLine);
+          orbitGroup.add(ln_cMeshes[i]);
+          this.ln_celestialGroup.add(orbitGroup);
+          this.ln_celestials.push({ orbitGroup, mesh: ln_cMeshes[i], trailLine, radius, speed: (0.08 + Math.random() * 0.15) * (i % 2 === 0 ? 1 : -1), phase: Math.random() * Math.PI * 2 });
+        }
+
+        this.ln_stage = 0;
+        this.ln_params = { width: 90, spreadZ: 0, noiseScale: 0.2, noiseAmplitude: 0.0, pulseIntensity: 0.0, centerFocus: 0, islandMask: 0, cliffBottom: 0, ridgeEffect: 0, cameraTiltX: 0.05, rotY: 0, celestialAlpha: 0, baseYOffset: 0 };
+        this.ln_targets = [
+          { width: 90, spreadZ: 0, noiseScale: 0.2, noiseAmplitude: 0.0, pulseIntensity: 0.0, centerFocus: 0, islandMask: 0.0, cliffBottom: 0, ridgeEffect: 0, cameraTiltX: 0.05, rotY: 0, autoRotate: false, celestialAlpha: 0, baseYOffset: 0 },
+          { width: 90, spreadZ: 0, noiseScale: 0.2, noiseAmplitude: 0.0, pulseIntensity: 1.0, centerFocus: 0, islandMask: 0.0, cliffBottom: 0, ridgeEffect: 0, cameraTiltX: 0.05, rotY: 0, autoRotate: false, celestialAlpha: 0, baseYOffset: 0 },
+          { width: 45, spreadZ: 38, noiseScale: 0.6, noiseAmplitude: 6.5, pulseIntensity: 0.0, centerFocus: 1.0, islandMask: 0.0, cliffBottom: 0.0, ridgeEffect: 1.0, cameraTiltX: 0.55, rotY: 0, autoRotate: false, celestialAlpha: 0, baseYOffset: 2 },
+          { width: 45, spreadZ: 42, noiseScale: 0.7, noiseAmplitude: 7.0, pulseIntensity: 0.0, centerFocus: 1.0, islandMask: 1.0, cliffBottom: 1.0, ridgeEffect: 0.8, cameraTiltX: 0.35, rotY: Math.PI / 5, autoRotate: true, celestialAlpha: 1.0, baseYOffset: 10 }
+        ];
+      }
+
+      ln_fbm(x, z, t, scale) {
+        return Math.sin(x * scale * 1.0 + t * 1.2) * Math.cos(z * scale * 1.0 + t * 0.8) * 1.0 +
+          Math.sin(x * scale * 2.1 - t * 1.5) * Math.cos(z * scale * 2.1 + t * 1.1) * 0.5 +
+          Math.sin(x * scale * 3.7 + t * 2.0) * Math.cos(z * scale * 3.7 - t * 0.9) * 0.25;
+      }
+
+      ln_update(dt, time) {
+        if (!this.ln_Master.visible) return;
+        const tg = this.ln_targets[this.ln_stage];
+        const spd = dt * gsap.globalTimeline.timeScale();
+
+        Object.keys(this.ln_params).forEach(k => { if (k !== 'rotY') this.ln_params[k] += (tg[k] - this.ln_params[k]) * spd; });
+        this.ln_params.rotY += tg.autoRotate ? 0.0015 : (tg.rotY - this.ln_params.rotY) * spd;
+
+        this.ln_mainGroup.rotation.set(this.ln_params.cameraTiltX, this.ln_params.rotY, 0);
+        this.ln_mainGroup.position.y = this.ln_params.baseYOffset;
+
+        const pulsePos = Math.sin(time * 1.5) * 0.45;
+
+        if (this.ln_params.cliffBottom > 0.01) {
+          this.ln_baseBoxGroup.visible = true;
+          this.ln_baseBoxLines.material.opacity = this.ln_params.cliffBottom * 0.9;
+          this.ln_baseBoxSolid.material.opacity = this.ln_params.cliffBottom;
+          const pos = this.ln_baseBoxGeo.attributes.position.array, bW = (this.ln_params.width / 2) + 0.05, bZ = (this.ln_params.spreadZ / 2) + 0.05, bY = -this.ln_CONFIG.THICKNESS;
+          pos.set([-bW, bY, -bZ, bW, bY, -bZ, bW, bY, bZ, -bW, bY, bZ, -bW, 0, -bZ, bW, 0, -bZ, bW, 0, bZ, -bW, 0, bZ]);
+          this.ln_baseBoxGeo.attributes.position.needsUpdate = true;
+        } else this.ln_baseBoxGroup.visible = false;
+
+        for (let i = 0; i < this.ln_numLines; i++) {
+          const nZ = (i / (this.ln_numLines - 1)) - 0.5, z = nZ * this.ln_params.spreadZ;
+          const lPos = this.ln_linesData[i].lineGeom.attributes.position.array, mPos = this.ln_linesData[i].meshGeom.attributes.position.array;
+          for (let j = 0; j < this.ln_numPoints; j++) {
+            const nX = (j / (this.ln_numPoints - 1)) - 0.5, x = nX * this.ln_params.width;
+            const rNoise = this.ln_fbm(x, z, time, this.ln_params.noiseScale);
+            const bNoise = rNoise * (1 - this.ln_params.ridgeEffect) + Math.abs(rNoise) * this.ln_params.ridgeEffect;
+            const mask = (1.0 * (1 - this.ln_params.centerFocus)) + (Math.exp(-Math.pow(nX * 6, 2)) * (1.0 * (1 - this.ln_params.islandMask) + Math.exp(-Math.pow(nZ * 6, 2)) * this.ln_params.islandMask)) * this.ln_params.centerFocus;
+            const yBase = bNoise * this.ln_params.noiseAmplitude * mask;
+
+            const distP = Math.abs(nX - pulsePos), wiggle = Math.abs(Math.sin(distP * 30 - time * 15)) * 2.5;
+            const y = yBase + ((Math.exp(-Math.pow(distP * 15, 2)) * 3.0 + wiggle * Math.exp(-Math.pow(distP * 25, 2))) * (1.0 + Math.sin(time * 8.0) * 0.3) * this.ln_params.pulseIntensity);
+
+            const fBot = -15 * (1 - this.ln_params.cliffBottom) + (-this.ln_CONFIG.THICKNESS + 0.05) * this.ln_params.cliffBottom;
+            lPos[j * 3] = x; lPos[j * 3 + 1] = y; lPos[j * 3 + 2] = z;
+            mPos[j * 6] = x; mPos[j * 6 + 1] = y; mPos[j * 6 + 2] = z; mPos[j * 6 + 3] = x; mPos[j * 6 + 4] = fBot; mPos[j * 6 + 5] = z;
+          }
+          this.ln_linesData[i].lineGeom.attributes.position.needsUpdate = true;
+          this.ln_linesData[i].meshGeom.attributes.position.needsUpdate = true;
+        }
+
+        if (this.ln_params.celestialAlpha > 0.01) {
+          this.ln_celestialGroup.rotation.y -= 0.002;
+          this.ln_celestials.forEach(c => {
+            c.orbitGroup.visible = true; c.trailLine.material.opacity = this.ln_params.celestialAlpha * 0.12;
+            c.mesh.traverse(ch => { if (ch.isLineSegments) ch.material.opacity = this.ln_params.celestialAlpha * 0.5; });
+            const t = time * c.speed + c.phase; c.mesh.position.set(Math.cos(t) * c.radius, 0, Math.sin(t) * c.radius);
+            c.mesh.rotation.y += 0.01; c.mesh.rotation.x += 0.015;
+          });
+        } else this.ln_celestials.forEach(c => c.orbitGroup.visible = false);
+      }
+
+      // =======================================================
+      // 子系统三：张力之面 (Face Geometry / Rubik)
+      // =======================================================
+      initFaceSystem() {
+        this.fc_gridGroup = new THREE.Group();
+        this.fc_gHelper1 = new THREE.GridHelper(100, 50, 0x666666, 0x222222); this.fc_gHelper1.position.y = -2;
+        this.fc_gridGroup.add(this.fc_gHelper1);
+        this.fc_gHelper2 = new THREE.GridHelper(100, 50, 0x666666, 0x222222); this.fc_gHelper2.position.y = 2;
+        this.fc_gridGroup.add(this.fc_gHelper2);
+        this.fc_gHelper1.material.transparent = true; this.fc_gHelper2.material.transparent = true;
+
+        this.fc_warpGates = [];
+        for (let i = 0; i < 5; i++) {
+          const gate = new THREE.GridHelper(40, 20, 0x888888, 0x333333); gate.rotation.x = Math.PI / 2;
+          gate.material.transparent = true; gate.material.opacity = 0; gate.visible = false;
+          this.fc_warpGates.push(gate); this.fc_gridGroup.add(gate);
+        }
+        this.fc_Master.add(this.fc_gridGroup);
+
+        this.fc_cubes = [];
+        this.fc_mainGroup = new THREE.Group();
+        this.fc_pivot = new THREE.Group();
+        this.fc_Master.add(this.fc_mainGroup);
+        this.fc_mainGroup.add(this.fc_pivot);
+        const fc_geo = new THREE.BoxGeometry(0.95, 0.95, 0.95), fc_edges = new THREE.EdgesGeometry(fc_geo);
+        for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+          const wrap = new THREE.Group(), solid = new THREE.Mesh(fc_geo, new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide }));
+          solid.add(new THREE.LineSegments(fc_edges, new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 }))); wrap.add(solid);
+          wrap.userData = { initX: x, initY: y, initZ: z, solidMesh: solid };
+          wrap.position.set(x * 1.0, y * 1.0, z * 1.0); wrap.scale.setScalar(0);
+          this.fc_mainGroup.add(wrap); this.fc_cubes.push(wrap);
+        }
+
+        this.fc_particles = [];
+        const fc_pGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2), fc_pEdges = new THREE.EdgesGeometry(fc_pGeo);
+        for (let i = 0; i < 60; i++) {
+          const pGroup = new THREE.Group(), pMesh = new THREE.Mesh(fc_pGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+          pMesh.add(new THREE.LineSegments(fc_pEdges, new THREE.LineBasicMaterial({ color: 0xffffff }))); pGroup.add(pMesh);
+          pGroup.userData = { velocity: new THREE.Vector3(), rotSpeed: new THREE.Vector3(Math.random() * 0.3, Math.random() * 0.3, Math.random() * 0.3), active: false, life: 0 };
+          pGroup.visible = false; this.fc_particles.push(pGroup); this.fc_Master.add(pGroup);
+        }
+
+        this.fc_phase = 1; this.fc_isTwisting = false; this.fc_animState = { globalSpeed: 0 };
+      }
+
+      fc_burstParticle(p) {
+        p.position.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5));
+        p.userData.velocity.set((Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 1.5, Math.random() * 0.8 + 0.5);
+        p.userData.life = 0; p.userData.lifeStep = 0.01 + Math.random() * 0.02;
+        p.visible = true; p.userData.active = true;
+      }
+
+      fc_triggerPhase(p) {
+        this.fc_phase = p;
+        if (p < 3) this.fc_isTwisting = false;
+
+        if (p === 1) {
+          gsap.to(this.fc_animState, { globalSpeed: 0, duration: 2 });
+          if (this.currentDimension === 'face') gsap.to(this.camera.position, { x: 0, y: 0, z: 2.5, duration: 2.5, ease: "power3.inOut" });
+          gsap.to([this.fc_gHelper1.material, this.fc_gHelper2.material], { opacity: 0, duration: 2 });
+          this.fc_warpGates.forEach(g => gsap.to(g.material, { opacity: 0, duration: 1, onComplete: () => g.visible = false }));
+          this.fc_particles.forEach(p => p.visible = false);
+          this.fc_cubes.forEach(w => {
+            gsap.killTweensOf(w.scale); gsap.killTweensOf(w.position); gsap.killTweensOf(w.quaternion);
+            w.quaternion.identity(); w.position.set(w.userData.initX, w.userData.initY, w.userData.initZ);
+            w.userData.solidMesh.material.color.setHex(0x000000); w.userData.solidMesh.visible = true;
+            if (w.userData.initX === 0 && w.userData.initY === 0 && w.userData.initZ === 0) gsap.to(w.scale, { x: 1, y: 1, z: 0.01, duration: 1.5, ease: "back.out(1.2)" });
+            else gsap.to(w.scale, { x: 0, y: 0, z: 0, duration: 1 });
+          });
+          gsap.to(this.fc_mainGroup.rotation, { x: 0, y: 0, z: 0, duration: 2 }); gsap.to(this.fc_mainGroup.position, { x: 0, y: 0, duration: 1 });
+        }
+        if (p === 2) {
+          gsap.to(this.fc_animState, { globalSpeed: 0, duration: 2 });
+          if (this.currentDimension === 'face') gsap.to(this.camera.position, { x: 1.5, y: -1.5, z: 4.5, duration: 2.5, ease: "power2.inOut" });
+          this.fc_cubes.forEach(w => {
+            if (w.userData.initZ === 0) gsap.to(w.scale, { x: 1, y: 1, z: 0.01, duration: 1.5, delay: (Math.abs(w.userData.initX) + Math.abs(w.userData.initY)) * 0.1, ease: "back.out(1.5)" });
+            else gsap.to(w.scale, { x: 0, y: 0, z: 0, duration: 1 });
+          });
+        }
+        if (p === 3) {
+          gsap.to(this.fc_animState, { globalSpeed: 0, duration: 2 });
+          if (this.currentDimension === 'face') gsap.to(this.camera.position, { x: 4, y: 3, z: 6, duration: 3, ease: "power2.inOut" });
+          gsap.to([this.fc_gHelper1.material, this.fc_gHelper2.material], { opacity: 0.3, duration: 2 });
+          this.fc_cubes.forEach(w => gsap.to(w.scale, { x: 1, y: 1, z: 1, duration: 1.2, delay: Math.random() * 0.5, ease: "elastic.out(1, 0.5)" }));
+          setTimeout(() => { if (!this.fc_isTwisting && this.fc_phase >= 3 && this.currentDimension === 'face') this.fc_twist(); }, 1500);
+        }
+        if (p === 4) {
+          gsap.to(this.fc_animState, { globalSpeed: 1.0, duration: 3 });
+          if (this.currentDimension === 'face') gsap.to(this.camera.position, { x: 4, y: 3, z: 6, duration: 3, ease: "power2.inOut" });
+          gsap.to([this.fc_gHelper1.material, this.fc_gHelper2.material], { opacity: 0.5, duration: 2 });
+          this.fc_warpGates.forEach((g, i) => { if (!g.visible) { g.position.z = -10 - i * 12; g.visible = true; g.material.opacity = 0; } gsap.to(g.material, { opacity: 0.5, duration: 2.5 }); });
+          this.fc_particles.forEach(p => this.fc_burstParticle(p));
+          setTimeout(() => { if (!this.fc_isTwisting && this.fc_phase >= 3 && this.currentDimension === 'face') this.fc_twist(); }, 1500);
+        }
+      }
+
+      fc_twist() {
+        if (this.fc_phase < 3 || this.currentDimension !== 'face') { this.fc_isTwisting = false; return; }
+        this.fc_isTwisting = true;
+        const ax = ['x', 'y', 'z'][Math.floor(Math.random() * 3)], target = (Math.floor(Math.random() * 3) - 1);
+        const layers = this.fc_cubes.filter(w => Math.abs(w.position[ax] - target) < 0.1);
+        this.fc_pivot.rotation.set(0, 0, 0); this.fc_pivot.position.set(0, 0, 0);
+        layers.forEach(w => this.fc_pivot.attach(w));
+        const anim = {
+          duration: 0.6, ease: "back.inOut(1.4)", onComplete: () => {
+            layers.forEach(w => this.fc_mainGroup.attach(w));
+            this.fc_cubes.forEach(w => {
+              w.position.x = Math.round(w.position.x); w.position.y = Math.round(w.position.y); w.position.z = Math.round(w.position.z);
+              const e = new THREE.Euler().setFromQuaternion(w.quaternion);
+              e.x = Math.round(e.x / (Math.PI / 2)) * (Math.PI / 2); e.y = Math.round(e.y / (Math.PI / 2)) * (Math.PI / 2); e.z = Math.round(e.z / (Math.PI / 2)) * (Math.PI / 2);
+              w.quaternion.setFromEuler(e);
+            });
+            this.fc_isTwisting = false; setTimeout(() => this.fc_twist(), 100);
+          }
+        };
+        anim[ax] = (Math.PI / 2) * (Math.random() > 0.5 ? 1 : -1);
+        gsap.to(this.fc_pivot.rotation, anim);
+      }
+
+      fc_update(time) {
+        if (!this.fc_Master.visible) return;
+        if (this.fc_phase === 2) {
+          this.fc_cubes.forEach(w => { if (w.userData.initZ === 0) w.position.z = Math.sin(time * 2 + w.userData.initX * 0.5 + w.userData.initY * 0.5) * 0.15; });
+        }
+        if (this.fc_phase >= 3) {
+          this.fc_mainGroup.rotation.x += 0.005; this.fc_mainGroup.rotation.y += 0.008;
+          if (Math.random() > 0.2) this.fc_cubes[Math.floor(Math.random() * this.fc_cubes.length)].userData.solidMesh.visible = Math.random() > 0.4;
+        }
+        if (this.fc_phase === 4) {
+          this.fc_gridGroup.position.z += this.fc_animState.globalSpeed * 0.3; if (this.fc_gridGroup.position.z > 10) this.fc_gridGroup.position.z = 0;
+          this.fc_warpGates.forEach(g => { g.position.z += this.fc_animState.globalSpeed * 0.8; if (g.position.z > this.camera.position.z + 2) g.position.z -= 60; });
+          this.fc_mainGroup.position.x = Math.sin(time * 30) * 0.04 * this.fc_animState.globalSpeed; this.fc_mainGroup.position.y = Math.cos(time * 35) * 0.04 * this.fc_animState.globalSpeed;
+          this.fc_particles.forEach(p => {
+            if (p.userData.active) {
+              p.userData.life += p.userData.lifeStep * this.fc_animState.globalSpeed;
+              p.scale.setScalar(Math.sin(Math.min(p.userData.life, 1.0) * Math.PI));
+              p.position.addScaledVector(p.userData.velocity, this.fc_animState.globalSpeed * 0.4);
+              p.rotation.x += p.userData.rotSpeed.x * this.fc_animState.globalSpeed; p.rotation.y += p.userData.rotSpeed.y * this.fc_animState.globalSpeed;
+              if (p.userData.life >= 1.0 || p.position.z > this.camera.position.z) this.fc_burstParticle(p);
+            }
+          });
+        }
+      }
+
+      // =======================================================
+      // 宇宙宏观调控：主调度器 (The Symphony Master)
+      // =======================================================
+      async switchDimension(targetDim) {
+        if (this.currentDimension === targetDim) return;
+
+        // 1. 退场机制
+        if (this.currentDimension) {
+          const prevGroup = this.currentDimension === 'point' ? this.pt_Master : (this.currentDimension === 'line' ? this.ln_Master : this.fc_Master);
+          if (this.currentDimension === 'point') this.pt_stage = 1;
+          if (this.currentDimension === 'line') this.ln_stage = 0;
+          if (this.currentDimension === 'face') this.fc_triggerPhase(1);
+
+          gsap.to(prevGroup.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 1.5, ease: "power2.in", onComplete: () => { prevGroup.visible = false; } });
+        }
+
+        // 2. 环境与相机插值
+        let camPos = { x: 0, y: 0, z: 8 }; let fogTarget = 0.05;
+        if (targetDim === 'line') { camPos = { x: 0, y: 10, z: 65 }; fogTarget = 0.00; }
+        if (targetDim === 'face') { camPos = { x: 0, y: 0, z: 2.5 }; fogTarget = 0.02; }
+
+        gsap.to(this.camera.position, { x: camPos.x, y: camPos.y, z: camPos.z, duration: 2.5, ease: "power3.inOut" });
+        gsap.to(this.fogState, { density: fogTarget, duration: 2, onUpdate: () => { this.scene.fog.density = this.fogState.density; } });
+
+        // 3. 进场机制
+        const nextGroup = targetDim === 'point' ? this.pt_Master : (targetDim === 'line' ? this.ln_Master : this.fc_Master);
+        this.currentDimension = targetDim;
+
+        if (targetDim === 'point') this.pt_stage = 1;
+        if (targetDim === 'line') this.ln_stage = 0;
+        if (targetDim === 'face') this.fc_triggerPhase(1);
+
+        setTimeout(() => {
+          nextGroup.visible = true;
+          nextGroup.scale.setScalar(0.001);
+          gsap.to(nextGroup.scale, { x: 1, y: 1, z: 1, duration: 2.5, ease: "elastic.out(1, 0.5)" });
+        }, 1200);
+
+        return new Promise(resolve => setTimeout(resolve, 3800));
+      }
+
+      // =======================================================
+      // 回落与文字系统
+      // =======================================================
+      fadeToBlack() {
+        if (this.isFading) return;
+        this.isFading = true;
+        this.fadeProgress = 0;
+        
+        // 淡出所有视觉效果
+        gsap.to(this.pt_Master, { opacity: 0, duration: 3 });
+        gsap.to(this.ln_Master, { opacity: 0, duration: 3 });
+        gsap.to(this.fc_Master, { opacity: 0, duration: 3 });
+        gsap.to(this.scene.background, { r: 0, g: 0, b: 0, duration: 3 });
+        
+        // 3秒后显示第一行文字
+        setTimeout(() => {
+          this.textPhase = 1;
+          showNarrativeText(CHAPTER_CONFIG.ch4.textFading.cn, CHAPTER_CONFIG.ch4.textFading.en);
+          
+          // 5秒后黑屏
+          setTimeout(() => {
+            this.textPhase = 2;
+            hideNarrativeText();
+            
+            // 2秒后显示第二行文字
+            setTimeout(() => {
+              this.textPhase = 3;
+              showNarrativeText(CHAPTER_CONFIG.ch4.textEnding.cn, CHAPTER_CONFIG.ch4.textEnding.en);
+              
+              // 5秒后结束，保持黑屏
+              setTimeout(() => {
+                this.textPhase = 4;
+                hideNarrativeText();
+                STATE.narrativePhase = 'ending';
+              }, 5000);
+            }, 2000);
+          }, 5000);
+        }, 3000);
+      }
+
+      // =======================================================
+      // 外部 API
+      // =======================================================
+      setSpeed(val) {
+        val = Math.max(0.0, Math.min(1.0, val));
+        this.symphonySpeed = val;
+      }
+
+      // 自动播放逻辑：内部阶段循环
+      autoPlayLogic(dt) {
+        if (!this.currentDimension || this.isFading) return;
+        
+        // 积累时间，速度越快切换越快
+        this.autoPlayTimer = (this.autoPlayTimer || 0) + dt;
+        
+        // 根据速度调整切换间隔：速度1x时3秒，速度4x时1秒
+        const switchInterval = 3.0 / (1.0 + this.symphonySpeed * 3.0);
+        
+        if (this.autoPlayTimer >= switchInterval) {
+          this.autoPlayTimer = 0;
+          this.nextPhase();
+        }
+      }
+      
+      // 进入下一个阶段
+      nextPhase() {
+        if (this.currentDimension === 'point') {
+          // point: 1 -> 2 -> 3 -> 1
+          this.pt_stage = this.pt_stage >= 3 ? 1 : this.pt_stage + 1;
+        } else if (this.currentDimension === 'line') {
+          // line: 0 -> 1 -> 2 -> 3 -> 0
+          this.ln_stage = this.ln_stage >= 3 ? 0 : this.ln_stage + 1;
+        } else if (this.currentDimension === 'face') {
+          // face: 1 -> 2 -> 3 -> 4 -> 1
+          this.fc_phase = this.fc_phase >= 4 ? 1 : this.fc_phase + 1;
+          this.fc_triggerPhase(this.fc_phase);
+        }
+      }
+
+      startClimaxTimer() {
+        if (!this.climaxStartTime) {
+          this.climaxStartTime = Date.now();
+        }
+      }
+
+      checkClimaxDuration() {
+        if (!this.climaxStartTime || this.isFading) return false;
+        const duration = Date.now() - this.climaxStartTime;
+        return duration >= 10000; // 10秒
+      }
+
+      // =======================================================
+      // 渲染主循环
+      // =======================================================
+      update() {
+        const delta = Math.min(this.clock.getDelta(), 0.1);
+
+        // 1. 读取速度 (0.0 ~ 1.0)
+        const espSpeed = this.symphonySpeed;
+
+        // 2. 时空压缩计算 (1x ~ 4x)
+        const timeScale = 1.0 + (espSpeed * 3.0);
+        gsap.globalTimeline.timeScale(timeScale);
+        this.sysTime += delta * timeScale;
+
+        // 3. RGB 炫光计算
+        const rgbIntensity = Math.pow(espSpeed, 2.0) * 0.025;
+        this.rgbShiftPass.uniforms['amount'].value = rgbIntensity;
+        this.rgbShiftPass.uniforms['angle'].value += delta * 5.0 * timeScale;
+
+        // 自动播放逻辑：内部阶段循环
+        this.autoPlayLogic(delta * timeScale);
+
+        // 并发更新
+        this.pt_update(this.sysTime);
+        this.ln_update(delta, this.sysTime);
+        this.fc_update(this.sysTime);
+
+        // 回落时降低透明度
+        if (this.isFading) {
+          this.fadeProgress = Math.min(1, this.fadeProgress + delta * 0.3);
+          this.pt_Master.traverse(obj => { if (obj.material) obj.material.opacity = (obj.material.opacity || 1) * (1 - this.fadeProgress); });
+          this.ln_Master.traverse(obj => { if (obj.material) obj.material.opacity = (obj.material.opacity || 1) * (1 - this.fadeProgress); });
+          this.fc_Master.traverse(obj => { if (obj.material) obj.material.opacity = (obj.material.opacity || 1) * (1 - this.fadeProgress); });
+        }
+      }
+
+      render() {
+        this.composer.render();
+      }
+
+      onResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.composer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      dispose() {
+        if (this.renderer) {
+          this.renderer.dispose();
+          this.renderer.domElement.remove();
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
     // 配置
     // ═══════════════════════════════════════════════════
     const CONFIG = {
@@ -1171,9 +1857,14 @@
       narrativeTimer: null,        // 文案显示定时器
       prefaceTimer: null,          // preface 自动进入 ch1 的定时器
       // 第一章触发阈值（可调整，能量范围0-10000）
-      motionThreshold: 1500,       // 抖动阈值：低于此值视为静止
-      developThreshold: 4000,      // 发展阈值：需要明显的手势才触发
-      climaxThreshold: 7500,       // 高潮阈值：需要强烈的双手互动
+      motionThreshold: 5000,       // 抖动阈值：低于此值视为静止 (默认5000)
+      developThreshold: 5000,      // 发展阈值：需要明显的手势才触发 (默认5000)
+      climaxThreshold: 5000,       // 高潮阈值：需要强烈的双手互动 (默认5000)
+      // 第四章回落监测
+      spiralFadingThreshold: 500,    // 回落阈值：低于此值视为"静止状态"
+      spiralFadingDuration: 5000,    // 回落等待时间：需要持续静止8000ms
+      spiralFadingStartTime: null,   // 回落计时开始时间
+      spiralFadingTriggered: false,  // 回落已触发标志
     };
     
     // ═══════════════════════════════════════════════════
@@ -1207,7 +1898,9 @@
         title: "回归·自我",
         subtitle: "Return · Self",
         textDeveloping: { cn: "当所有声音消失，你听见什么？", en: "When all sounds fade, what do you hear?" },
-        textClimax: { cn: "", en: "" }
+        textClimax: { cn: "", en: "" },
+        textFading: { cn: "当所有声音消失，你听见什么？", en: "When all sounds fade, what do you hear?" },
+        textEnding: { cn: "刚才的声音里，有你的好奇吗？", en: "Was your curiosity among those sounds?" }
       },
       ending: {
         title: "",
@@ -1677,6 +2370,19 @@
         ch3Container.style.display = 'none';
         document.body.appendChild(ch3Container);
         this.chapter3 = new Chapter3Face(ch3Container);
+
+        // 创建第四章「螺旋」Three.js 视觉系统
+        const ch4Container = document.createElement('div');
+        ch4Container.id = 'ch4-container';
+        ch4Container.style.width = '100vw';
+        ch4Container.style.height = '100vh';
+        ch4Container.style.position = 'fixed';
+        ch4Container.style.top = '0';
+        ch4Container.style.left = '0';
+        ch4Container.style.zIndex = '0';
+        ch4Container.style.display = 'none';
+        document.body.appendChild(ch4Container);
+        this.chapter4 = new Chapter4Spiral(ch4Container);
         
         this.animate();
       }
@@ -1733,8 +2439,19 @@
           this.chapter1Canvas.style.display = 'none';
           this.chapter2Canvas.style.display = 'none';
           this.chapter3.renderer.domElement.parentElement.style.display = 'block';
+          this.chapter4.renderer.domElement.parentElement.style.display = 'none';
           this.chapter3.update();
           this.chapter3.render();
+          return;
+        } else if (STATE.narrativePhase === 'ch4') {
+          // 第四章：使用 Three.js (螺旋 - all-in-one)
+          this.canvas.style.display = 'none';
+          this.chapter1Canvas.style.display = 'none';
+          this.chapter2Canvas.style.display = 'none';
+          this.chapter3.renderer.domElement.parentElement.style.display = 'none';
+          this.chapter4.renderer.domElement.parentElement.style.display = 'block';
+          this.chapter4.update();
+          this.chapter4.render();
           return;
         } else if (STATE.chapter >= 1 && STATE.chapter <= 3) {
           // 兼容旧逻辑
@@ -1893,6 +2610,72 @@
           const elStage = document.getElementById('debug-stage');
           if (elEnergy) elEnergy.textContent = Math.round(effectiveMainEnergy) + '/' + Math.round(effectiveSubEnergy);
           if (elStage) elStage.textContent = targetPhase;
+        }
+        
+        // 第四章「螺旋」Three.js 视觉系统的 ESP32 状态映射
+        // 核心逻辑：平滑控制速度1x-4x，必须双手都静止才触发回落
+        if (STATE.narrativePhase === 'ch4' && this.chapter4 && !STATE.spiralFadingTriggered) {
+          const mainE = STATE.mainEnergy;
+          const subE = STATE.subEnergy;
+          
+          const motionThreshold = STATE.motionThreshold;  // 默认5000
+          const developThreshold = STATE.developThreshold; // 默认5000
+          const climaxThreshold = STATE.climaxThreshold;  // 默认5000
+          const fadingThreshold = STATE.spiralFadingThreshold;
+          const fadingDuration = STATE.spiralFadingDuration;
+          
+          // 维度切换逻辑：根据总能量切换 point -> line -> face
+          const totalE = mainE + subE;
+          let targetDim = 'point';
+          if (hasSub && totalE >= climaxThreshold * 2) {
+            targetDim = 'face';
+          } else if (hasMain && mainE >= developThreshold) {
+            targetDim = 'line';
+          }
+          
+          // 检查是否需要切换维度
+          if (this.chapter4.currentDimension !== targetDim) {
+            this.chapter4.switchDimension(targetDim);
+          }
+          
+          // ESP32 能量平滑映射到速度 0.0-1.0（1x-4x）
+          // 有能量时加速到4x，无能量时降到1x
+          const energyLevel = Math.min(1.0, totalE / 10000); // 归一化能量
+          const targetSpeed = energyLevel; // 目标速度
+          
+          // 平滑过渡当前速度到目标速度
+          const currentSpeed = this.chapter4.symphonySpeed || 0;
+          const smoothSpeed = currentSpeed + (targetSpeed - currentSpeed) * 0.05; // 5%平滑
+          
+          // 应用到 SymphonyAPI
+          this.chapter4.setSpeed(smoothSpeed);
+          
+          // 回落检测逻辑：必须双手都低于阈值才开始计时
+          const isBothStill = mainE < fadingThreshold && subE < fadingThreshold;
+          
+          if (isBothStill) {
+            // 双手都静止，开始或继续计时
+            if (STATE.spiralFadingStartTime === null) {
+              STATE.spiralFadingStartTime = Date.now();
+            } else {
+              // 检查是否已持续5秒
+              const elapsed = Date.now() - STATE.spiralFadingStartTime;
+              if (elapsed >= fadingDuration) {
+                // 触发回落
+                STATE.spiralFadingTriggered = true;
+                this.chapter4.fadeToBlack();
+              }
+            }
+          } else {
+            // 任何一手在动，重置计时器
+            STATE.spiralFadingStartTime = null;
+          }
+          
+          // 更新调试显示
+          const elEnergy = document.getElementById('debug-energy');
+          const elStage = document.getElementById('debug-stage');
+          if (elEnergy) elEnergy.textContent = Math.round(mainE) + '/' + Math.round(subE);
+          if (elStage) elStage.textContent = targetDim + ' | 速度:' + Math.round(smoothSpeed * 100) + '%';
         }
       }
       
@@ -2115,6 +2898,15 @@
       const btnMap = { 'ch1': 'ch-1', 'ch2': 'ch-2', 'ch3': 'ch-3', 'ch4': 'ch-4' };
       const btnId = btnMap[chapter];
       if (btnId) document.getElementById(btnId).classList.add('active');
+      
+      // 第四章特殊初始化
+      if (chapter === 'ch4') {
+        // 启动交响演算模式
+        const engine = window.visualEngine;
+        if (engine && engine.chapter4) {
+          engine.chapter4.switchDimension('point');
+        }
+      }
     }
     
     function updateNarrativeByEnergy(energy, hasSub) {
@@ -2206,6 +2998,12 @@
         STATE.prefaceTimer = null;
       }
       
+      // 如果切换到 ch4，重置回落状态
+      if (chapter === 'ch4') {
+        STATE.spiralFadingStartTime = null;
+        STATE.spiralFadingTriggered = false;
+      }
+      
       enterChapter(chapter);
     }
     
@@ -2214,8 +3012,23 @@
       if (menu) menu.classList.toggle('open');
     }
     
+    // 文字显示辅助函数（用于第四章回落）
+    function showNarrativeText(cn, en) {
+      const overlay = document.getElementById('narrative-overlay');
+      const cnEl = overlay.querySelector('.narrative-cn');
+      const enEl = overlay.querySelector('.narrative-en');
+      cnEl.textContent = cn;
+      enEl.textContent = en;
+      overlay.classList.add('visible');
+    }
+    
+    function hideNarrativeText() {
+      const overlay = document.getElementById('narrative-overlay');
+      overlay.classList.remove('visible');
+    }
+    
     // 启动
-    new VisualEngine();
+    window.visualEngine = new VisualEngine();
     startIntro();
   </script>
 </body>

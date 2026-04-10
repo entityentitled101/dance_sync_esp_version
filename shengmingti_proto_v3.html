@@ -6,6 +6,8 @@
   <title>声·命体 —— v3.0</title>
   <!-- Three.js 库 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- GSAP 动画库 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; overflow: hidden; }
@@ -156,7 +158,7 @@
   <div id="chapter-panel">
     <button class="chapter-btn active" id="ch-1" onclick="jumpToChapter('ch1')">点</button>
     <button class="chapter-btn" id="ch-2" onclick="jumpToChapter('ch2')">线</button>
-    <button class="chapter-btn locked" id="ch-3" onclick="" disabled>面</button>
+    <button class="chapter-btn" id="ch-3" onclick="jumpToChapter('ch3')">面</button>
     <button class="chapter-btn locked" id="ch-4" onclick="" disabled>螺旋</button>
     <button id="reset-btn" onclick="resetSystem()">重置</button>
   </div>
@@ -365,6 +367,757 @@
       }
       dispose() {
         if (this.renderer) { this.renderer.dispose(); this.renderer.domElement.remove(); }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 第二章「线」Three.js 视觉系统
+    // 以下代码完整复制自 gemini-frontend/line.html
+    // ═══════════════════════════════════════════════════
+    
+    class Chapter2Line {
+      constructor(container) {
+        // 核心配置中心
+        this.CONFIG = {
+          ISLAND_THICKNESS: 1.2,
+          ORBIT_RADIUS_MIN: 32,
+          ORBIT_RADIUS_MAX: 48
+        };
+
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x000000);
+        
+        this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+        this.camera.position.set(0, 10, 65);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(this.renderer.domElement);
+
+        this.clock = new THREE.Clock();
+        this.mainGroup = new THREE.Group();
+        this.scene.add(this.mainGroup);
+
+        this.numLines = 65;
+        this.numPoints = 160;
+        this.linesData = [];
+        this.celestials = [];
+
+        this.params = {
+          width: 90,
+          spreadZ: 0,
+          noiseScale: 0.2,
+          noiseAmplitude: 0.0,
+          pulseIntensity: 0.0,
+          centerFocus: 0,
+          islandMask: 0,
+          cliffBottom: 0,
+          ridgeEffect: 0,
+          cameraTiltX: 0.05,
+          rotY: 0,
+          autoRotate: false,
+          celestialAlpha: 0,
+          baseYOffset: 0
+        };
+
+        this.stages = [
+          { width: 90, spreadZ: 0, noiseScale: 0.2, noiseAmplitude: 0.0, pulseIntensity: 0.0, centerFocus: 0, islandMask: 0.0, cliffBottom: 0, ridgeEffect: 0, cameraTiltX: 0.05, rotY: 0, autoRotate: false, celestialAlpha: 0, baseYOffset: 0 },
+          { width: 90, spreadZ: 0, noiseScale: 0.2, noiseAmplitude: 0.0, pulseIntensity: 1.0, centerFocus: 0, islandMask: 0.0, cliffBottom: 0, ridgeEffect: 0, cameraTiltX: 0.05, rotY: 0, autoRotate: false, celestialAlpha: 0, baseYOffset: 0 },
+          { width: 45, spreadZ: 38, noiseScale: 0.6, noiseAmplitude: 6.5, pulseIntensity: 0.0, centerFocus: 1.0, islandMask: 0.0, cliffBottom: 0.0, ridgeEffect: 1.0, cameraTiltX: 0.55, rotY: 0, autoRotate: false, celestialAlpha: 0, baseYOffset: 2 },
+          { width: 45, spreadZ: 42, noiseScale: 0.7, noiseAmplitude: 7.0, pulseIntensity: 0.0, centerFocus: 1.0, islandMask: 1.0, cliffBottom: 1.0, ridgeEffect: 0.8, cameraTiltX: 0.35, rotY: Math.PI / 5, autoRotate: true, celestialAlpha: 1.0, baseYOffset: 10 }
+        ];
+
+        this.targetStage = 0;
+        this.init();
+        window.addEventListener('resize', () => this.onResize());
+      }
+
+      init() {
+        const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+        const meshMaterial = new THREE.MeshBasicMaterial({
+          color: 0x000000,
+          side: THREE.DoubleSide,
+          depthWrite: true,
+          polygonOffset: true,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1
+        });
+
+        for (let i = 0; i < this.numLines; i++) {
+          const lineGeom = new THREE.BufferGeometry();
+          const linePositions = new Float32Array(this.numPoints * 3);
+          lineGeom.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+          const line = new THREE.Line(lineGeom, lineMaterial);
+
+          const meshGeom = new THREE.BufferGeometry();
+          const meshPositions = new Float32Array(this.numPoints * 2 * 3);
+          const indices = [];
+          for (let j = 0; j < this.numPoints - 1; j++) {
+            const top1 = j * 2;
+            const bot1 = j * 2 + 1;
+            const top2 = (j + 1) * 2;
+            const bot2 = (j + 1) * 2 + 1;
+            indices.push(top1, bot1, top2);
+            indices.push(bot1, bot2, top2);
+          }
+          meshGeom.setAttribute('position', new THREE.BufferAttribute(meshPositions, 3));
+          meshGeom.setIndex(indices);
+          const mesh = new THREE.Mesh(meshGeom, meshMaterial);
+
+          this.mainGroup.add(mesh);
+          this.mainGroup.add(line);
+          this.linesData.push({ lineGeom, meshGeom });
+        }
+
+        // 极简几何厚度底座构建
+        this.baseBoxGroup = new THREE.Group();
+        this.baseBoxGeo = new THREE.BufferGeometry();
+        const boxPos = new Float32Array(8 * 3);
+        this.baseBoxGeo.setAttribute('position', new THREE.BufferAttribute(boxPos, 3));
+
+        this.baseBoxGeo.setIndex([
+          0, 1, 1, 2, 2, 3, 3, 0,
+          4, 5, 5, 6, 6, 7, 7, 4,
+          0, 4, 1, 5, 2, 6, 3, 7
+        ]);
+        this.baseBoxLines = new THREE.LineSegments(this.baseBoxGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }));
+
+        const solidGeo = new THREE.BufferGeometry();
+        solidGeo.setAttribute('position', new THREE.BufferAttribute(boxPos, 3));
+        solidGeo.setIndex([
+          0, 1, 5, 0, 5, 4,
+          1, 2, 6, 1, 6, 5,
+          2, 3, 7, 2, 7, 6,
+          3, 0, 4, 3, 4, 7,
+          3, 2, 1, 3, 1, 0
+        ]);
+        this.baseBoxSolid = new THREE.Mesh(solidGeo, new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 4 }));
+
+        this.baseBoxGroup.add(this.baseBoxLines);
+        this.baseBoxGroup.add(this.baseBoxSolid);
+        this.mainGroup.add(this.baseBoxGroup);
+
+        // 宇宙中心：绕岛穿梭的星体轨道组
+        this.celestialGroup = new THREE.Group();
+        this.mainGroup.add(this.celestialGroup);
+        this.celestialGroup.position.y = -this.CONFIG.ISLAND_THICKNESS / 2;
+
+        const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
+
+        const geo1 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(1.6, 10, 10)), mat.clone());
+        const geo2 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.CylinderGeometry(1.2, 1.2, 2.0, 10, 3)), mat.clone());
+        const geo3 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.TetrahedronGeometry(1.8)), mat.clone());
+        const geo4 = new THREE.Group();
+        const mainBox = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.BoxGeometry(1.5, 1.5, 1.5, 2, 2, 2)), mat.clone());
+        const earGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5, 1, 1, 1);
+        const ear1 = new THREE.LineSegments(new THREE.WireframeGeometry(earGeo), mat.clone()); ear1.position.set(1.1, 0, 0);
+        const ear2 = new THREE.LineSegments(new THREE.WireframeGeometry(earGeo), mat.clone()); ear2.position.set(-1.1, 0, 0);
+        geo4.add(mainBox, ear1, ear2);
+        const geo5 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.OctahedronGeometry(1.6)), mat.clone());
+        const geo6 = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(1.5)), mat.clone());
+
+        const celestialMeshes = [geo1, geo2, geo3, geo4, geo5, geo6];
+
+        for (let i = 0; i < 6; i++) {
+          const orbitGroup = new THREE.Group();
+          const radius = this.CONFIG.ORBIT_RADIUS_MIN + Math.random() * (this.CONFIG.ORBIT_RADIUS_MAX - this.CONFIG.ORBIT_RADIUS_MIN);
+          const speed = (0.08 + Math.random() * 0.15) * (i % 2 === 0 ? 1 : -1);
+          const phase = Math.random() * Math.PI * 2;
+
+          orbitGroup.rotation.x = (Math.random() - 0.5) * 0.8;
+          orbitGroup.rotation.z = (Math.random() - 0.5) * 0.8;
+
+          const trailGeo = new THREE.BufferGeometry();
+          const trailPts = [];
+          const segments = 64;
+          for (let j = 0; j <= segments; j++) {
+            const a = (j / segments) * Math.PI * 2;
+            trailPts.push(Math.cos(a) * radius, 0, Math.sin(a) * radius);
+          }
+          trailGeo.setAttribute('position', new THREE.Float32BufferAttribute(trailPts, 3));
+          const trailLine = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
+          orbitGroup.add(trailLine);
+
+          orbitGroup.add(celestialMeshes[i]);
+          this.celestialGroup.add(orbitGroup);
+          this.celestials.push({ orbitGroup, mesh: celestialMeshes[i], trailLine, radius, speed, phase });
+        }
+      }
+
+      fbm(x, z, t, scale) {
+        let y = 0;
+        y += Math.sin(x * scale * 1.0 + t * 1.2) * Math.cos(z * scale * 1.0 + t * 0.8) * 1.0;
+        y += Math.sin(x * scale * 2.1 - t * 1.5) * Math.cos(z * scale * 2.1 + t * 1.1) * 0.5;
+        y += Math.sin(x * scale * 3.7 + t * 2.0) * Math.cos(z * scale * 3.7 - t * 0.9) * 0.25;
+        return y;
+      }
+
+      setTargetStage(stage) {
+        // stage 0-3 对应 line.html 的 4 个阶段
+        if (stage >= 0 && stage <= 3) {
+          this.targetStage = stage;
+        }
+      }
+
+      update() {
+        const time = this.clock.getElapsedTime();
+        const dt = 0.04;
+
+        const target = this.stages[this.targetStage];
+        this.params.width += (target.width - this.params.width) * dt;
+        this.params.spreadZ += (target.spreadZ - this.params.spreadZ) * dt;
+        this.params.noiseScale += (target.noiseScale - this.params.noiseScale) * dt;
+        this.params.noiseAmplitude += (target.noiseAmplitude - this.params.noiseAmplitude) * dt;
+        this.params.pulseIntensity += (target.pulseIntensity - this.params.pulseIntensity) * dt;
+        this.params.centerFocus += (target.centerFocus - this.params.centerFocus) * dt;
+        this.params.islandMask += (target.islandMask - this.params.islandMask) * dt;
+        this.params.cliffBottom += (target.cliffBottom - this.params.cliffBottom) * dt;
+        this.params.ridgeEffect += (target.ridgeEffect - this.params.ridgeEffect) * dt;
+        this.params.cameraTiltX += (target.cameraTiltX - this.params.cameraTiltX) * dt;
+        this.params.celestialAlpha += (target.celestialAlpha - this.params.celestialAlpha) * dt;
+        this.params.baseYOffset += (target.baseYOffset - this.params.baseYOffset) * dt;
+
+        if (target.autoRotate) {
+          this.params.rotY += 0.0015;
+        } else {
+          this.params.rotY += (target.rotY - this.params.rotY) * dt;
+        }
+
+        this.mainGroup.rotation.x = this.params.cameraTiltX;
+        this.mainGroup.rotation.y = this.params.rotY;
+        this.mainGroup.position.y = this.params.baseYOffset;
+
+        const pulsePos = Math.sin(time * 1.5) * 0.45;
+
+        const getTerrainY = (nX, nZ) => {
+          const x = nX * this.params.width;
+          const z = nZ * this.params.spreadZ;
+          const rawNoise = this.fbm(x, z, time, this.params.noiseScale);
+          const blendedNoise = rawNoise * (1 - this.params.ridgeEffect) + Math.abs(rawNoise) * this.params.ridgeEffect;
+          const bellX = Math.exp(-Math.pow(nX * 6, 2));
+          const bellZ = Math.exp(-Math.pow(nZ * 6, 2));
+          const currentZMask = 1.0 * (1 - this.params.islandMask) + bellZ * this.params.islandMask;
+          const finalMask = 1.0 * (1 - this.params.centerFocus) + (bellX * currentZMask) * this.params.centerFocus;
+          return blendedNoise * this.params.noiseAmplitude * finalMask;
+        };
+
+        // 1. 更新立方体底座
+        if (this.params.cliffBottom > 0.01) {
+          this.baseBoxGroup.visible = true;
+          this.baseBoxLines.material.opacity = this.params.cliffBottom * 0.9;
+          this.baseBoxSolid.material.transparent = true;
+          this.baseBoxSolid.material.opacity = this.params.cliffBottom;
+
+          const pos = this.baseBoxGeo.attributes.position.array;
+          const bW = (this.params.width / 2) + 0.05;
+          const bZ = (this.params.spreadZ / 2) + 0.05;
+          const topY = 0;
+          const bottomY = -this.CONFIG.ISLAND_THICKNESS;
+
+          pos[0] = -bW; pos[1] = bottomY; pos[2] = -bZ;
+          pos[3] = bW; pos[4] = bottomY; pos[5] = -bZ;
+          pos[6] = bW; pos[7] = bottomY; pos[8] = bZ;
+          pos[9] = -bW; pos[10] = bottomY; pos[11] = bZ;
+
+          pos[12] = -bW; pos[13] = topY; pos[14] = -bZ;
+          pos[15] = bW; pos[16] = topY; pos[17] = -bZ;
+          pos[18] = bW; pos[19] = topY; pos[20] = bZ;
+          pos[21] = -bW; pos[22] = topY; pos[23] = bZ;
+
+          this.baseBoxGeo.attributes.position.needsUpdate = true;
+        } else {
+          this.baseBoxGroup.visible = false;
+        }
+
+        // 2. 更新地形线条
+        for (let i = 0; i < this.numLines; i++) {
+          const nZ = (i / (this.numLines - 1)) - 0.5;
+          const z = nZ * this.params.spreadZ;
+          const linePos = this.linesData[i].lineGeom.attributes.position.array;
+          const meshPos = this.linesData[i].meshGeom.attributes.position.array;
+
+          for (let j = 0; j < this.numPoints; j++) {
+            const nX = (j / (this.numPoints - 1)) - 0.5;
+            const x = nX * this.params.width;
+
+            const yBase = getTerrainY(nX, nZ);
+            const distToPulse = Math.abs(nX - pulsePos);
+            const rhythm = 1.0 + Math.sin(time * 8.0) * 0.3;
+            const pulseBase = Math.exp(-Math.pow(distToPulse * 15, 2)) * 3.0;
+            const pulseEnvelope = Math.exp(-Math.pow(distToPulse * 25, 2));
+            const wiggle = Math.abs(Math.sin(distToPulse * 30 - time * 15)) * 2.5;
+            const y = yBase + ((pulseBase + wiggle * pulseEnvelope) * rhythm * this.params.pulseIntensity);
+
+            const skirtBottom = -this.CONFIG.ISLAND_THICKNESS + 0.05;
+            const finalBottomY = -15 * (1 - this.params.cliffBottom) + skirtBottom * this.params.cliffBottom;
+
+            linePos[j * 3] = x;
+            linePos[j * 3 + 1] = y;
+            linePos[j * 3 + 2] = z;
+
+            meshPos[j * 6] = x;
+            meshPos[j * 6 + 1] = y;
+            meshPos[j * 6 + 2] = z;
+            meshPos[j * 6 + 3] = x;
+            meshPos[j * 6 + 4] = finalBottomY;
+            meshPos[j * 6 + 5] = z;
+          }
+          this.linesData[i].lineGeom.attributes.position.needsUpdate = true;
+          this.linesData[i].meshGeom.attributes.position.needsUpdate = true;
+        }
+
+        // 3. 更新宇宙中心的轨道群组
+        if (this.params.celestialAlpha > 0.01) {
+          this.celestialGroup.rotation.y -= 0.002;
+
+          this.celestials.forEach(c => {
+            c.orbitGroup.visible = true;
+            c.trailLine.material.opacity = this.params.celestialAlpha * 0.12;
+            c.mesh.traverse((child) => {
+              if (child.isLineSegments) {
+                child.material.opacity = this.params.celestialAlpha * 0.5;
+              }
+            });
+
+            const t = time * c.speed + c.phase;
+            c.mesh.position.x = Math.cos(t) * c.radius;
+            c.mesh.position.z = Math.sin(t) * c.radius;
+
+            c.mesh.rotation.y += 0.01;
+            c.mesh.rotation.x += 0.015;
+          });
+        } else {
+          this.celestials.forEach(c => c.orbitGroup.visible = false);
+        }
+      }
+
+      render() {
+        this.renderer.render(this.scene, this.camera);
+      }
+
+      onResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      dispose() {
+        if (this.renderer) {
+          this.renderer.dispose();
+          this.renderer.domElement.remove();
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 第三章「面」Three.js 视觉系统
+    // 以下代码完整复制自 gemini-frontend/face.html
+    // ═══════════════════════════════════════════════════
+
+    class Chapter3Face {
+      constructor(container) {
+        // === 1. 场景与相机基础设置 ===
+        this.scene = new THREE.Scene();
+        this.scene.fog = new THREE.FogExp2(0x000000, 0.02);
+
+        this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        // 不添加任何样式，保持与 face.html 一致
+        container.appendChild(this.renderer.domElement);
+
+        // === 2. 构建环境网格 (类似 Blender 地板) ===
+        this.gridGroup = new THREE.Group();
+        this.gridHelper = new THREE.GridHelper(100, 50, 0x666666, 0x222222);
+        this.gridHelper.position.y = -2;
+        this.gridHelper.material.transparent = true;
+        this.gridHelper.material.opacity = 1.0;
+        this.gridGroup.add(this.gridHelper);
+
+        // 天花板网格 (高潮时开启)
+        this.topGridHelper = new THREE.GridHelper(100, 50, 0x666666, 0x222222);
+        this.topGridHelper.position.y = 2;
+        this.topGridHelper.material.transparent = true;
+        this.topGridHelper.material.opacity = 0;
+        this.gridGroup.add(this.topGridHelper);
+
+        // 穿梭网格门 (Warp Gates 穿膜效果)
+        this.warpGates = [];
+        for (let i = 0; i < 5; i++) {
+          const gate = new THREE.GridHelper(40, 20, 0x888888, 0x333333);
+          gate.rotation.x = Math.PI / 2;
+          gate.position.z = -10 - i * 12;
+          gate.visible = false;
+          gate.material.transparent = true;
+          gate.material.opacity = 0;
+          this.warpGates.push(gate);
+          this.gridGroup.add(gate);
+        }
+
+        this.scene.add(this.gridGroup);
+
+        // === 3. 构建核心几何体 (魔方与切片) ===
+        this.cubes = [];
+        this.size = 0.95;
+        this.spacing = 1.0;
+        this.mainGroup = new THREE.Group();
+        this.scene.add(this.mainGroup);
+
+        this.pivot = new THREE.Group();
+        this.mainGroup.add(this.pivot);
+
+        const geometry = new THREE.BoxGeometry(this.size, this.size, this.size);
+        const edgesGeo = new THREE.EdgesGeometry(geometry);
+
+        for (let x = -1; x <= 1; x++) {
+          for (let y = -1; y <= 1; y++) {
+            for (let z = -1; z <= 1; z++) {
+              const wrapper = new THREE.Group();
+
+              // 黑底实心填充
+              const meshMat = new THREE.MeshBasicMaterial({
+                color: 0x000000,
+                side: THREE.DoubleSide
+              });
+              const solidMesh = new THREE.Mesh(geometry, meshMat);
+
+              // 纯白边框线
+              const lineMat = new THREE.LineBasicMaterial({
+                color: 0xffffff,
+                linewidth: 2
+              });
+              const edgeLines = new THREE.LineSegments(edgesGeo, lineMat);
+
+              solidMesh.add(edgeLines);
+              wrapper.add(solidMesh);
+
+              wrapper.userData = {
+                initX: x, initY: y, initZ: z,
+                solidMesh: solidMesh
+              };
+
+              wrapper.position.set(x * this.spacing, y * this.spacing, z * this.spacing);
+              wrapper.scale.set(0, 0, 0);
+
+              this.mainGroup.add(wrapper);
+              this.cubes.push(wrapper);
+            }
+          }
+        }
+
+        // === 4. 构建粒子喷射系统 ===
+        this.particleCount = 60;
+        this.particles = [];
+        const pGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+        const pEdgesGeo = new THREE.EdgesGeometry(pGeo);
+
+        const pMeshMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const pLineMat = new THREE.LineBasicMaterial({ color: 0xffffff });
+
+        for (let i = 0; i < this.particleCount; i++) {
+          const pGroup = new THREE.Group();
+          const pMesh = new THREE.Mesh(pGeo, pMeshMat);
+          const pLines = new THREE.LineSegments(pEdgesGeo, pLineMat);
+          pMesh.add(pLines);
+          pGroup.add(pMesh);
+
+          pGroup.userData = {
+            velocity: new THREE.Vector3(),
+            rotSpeed: new THREE.Vector3(Math.random() * 0.3, Math.random() * 0.3, Math.random() * 0.3),
+            active: false
+          };
+          pGroup.visible = false;
+          this.particles.push(pGroup);
+          this.scene.add(pGroup);
+        }
+
+        // === 5. 核心状态与叙事控制 ===
+        this.currentPhase = 0;
+        this.isTwisting = false;
+        this.animState = { globalSpeed: 0 };
+        this.clock = new THREE.Clock();
+
+        // 初始化相机位置 - 完全复制自 face.html
+        // 开场假装是一个静止的3D网格空间
+        this.camera.position.set(8, 6, 8);
+        this.camera.lookAt(0, 0, 0);
+
+        window.addEventListener('resize', () => this.onResize());
+      }
+
+      burstParticle(p) {
+        const radius = 1.0;
+        p.position.set(
+          (Math.random() - 0.5) * radius,
+          (Math.random() - 0.5) * radius,
+          (Math.random() - 0.5) * radius
+        );
+        p.userData.velocity.set(
+          (Math.random() - 0.5) * 1.5,
+          (Math.random() - 0.5) * 1.5,
+          Math.random() * 0.8 + 0.5
+        );
+        p.userData.life = 0;
+        p.userData.lifeStep = 0.01 + Math.random() * 0.02;
+        p.visible = true;
+        p.userData.active = true;
+      }
+
+      setPhase(phase) {
+        if (this.currentPhase === phase) return;
+        this.currentPhase = phase;
+
+        if (phase < 3) {
+          this.isTwisting = false;
+        }
+
+        if (phase === 1) this.triggerPhase1();
+        else if (phase === 2) this.triggerPhase2();
+        else if (phase === 3) this.triggerPhase3();
+        else if (phase === 4) this.triggerPhase4();
+      }
+
+      triggerPhase1() {
+        gsap.to(this.animState, { globalSpeed: 0, duration: 2 });
+
+        gsap.to(this.camera.position, { x: 2, y: 2, z: 4, duration: 2.5, ease: "power3.inOut" });
+
+        gsap.to(this.gridHelper.material, { opacity: 0, duration: 2 });
+        gsap.to(this.topGridHelper.material, { opacity: 0, duration: 2 });
+
+        this.warpGates.forEach(gate => {
+          gsap.to(gate.material, { opacity: 0, duration: 1, onComplete: () => gate.visible = false });
+        });
+
+        this.particles.forEach(p => p.visible = false);
+
+        this.cubes.forEach(wrapper => {
+          gsap.killTweensOf(wrapper.scale);
+          gsap.killTweensOf(wrapper.position);
+          gsap.killTweensOf(wrapper.quaternion);
+
+          wrapper.quaternion.identity();
+          wrapper.position.set(wrapper.userData.initX * this.spacing, wrapper.userData.initY * this.spacing, wrapper.userData.initZ * this.spacing);
+
+          wrapper.userData.solidMesh.material.color.setHex(0x000000);
+          wrapper.userData.solidMesh.visible = true;
+
+          if (wrapper.userData.initX === 0 && wrapper.userData.initY === 0 && wrapper.userData.initZ === 0) {
+            gsap.to(wrapper.scale, { x: 1, y: 1, z: 0.01, duration: 1.5, ease: "back.out(1.2)" });
+          } else {
+            gsap.to(wrapper.scale, { x: 0, y: 0, z: 0, duration: 1 });
+          }
+        });
+
+        gsap.to(this.mainGroup.rotation, { x: 0, y: 0, z: 0, duration: 2 });
+        gsap.to(this.mainGroup.position, { x: 0, y: 0, duration: 1 });
+      }
+
+      triggerPhase2() {
+        gsap.to(this.animState, { globalSpeed: 0, duration: 2 });
+
+        gsap.to(this.camera.position, { x: 2.5, y: 2, z: 5, duration: 2.5, ease: "power2.inOut" });
+        gsap.to(this.gridHelper.material, { opacity: 0, duration: 1 });
+        gsap.to(this.topGridHelper.material, { opacity: 0, duration: 1 });
+
+        this.warpGates.forEach(gate => {
+          gsap.to(gate.material, { opacity: 0, duration: 1, onComplete: () => gate.visible = false });
+        });
+
+        this.particles.forEach(p => p.visible = false);
+
+        this.cubes.forEach(wrapper => {
+          gsap.killTweensOf(wrapper.scale);
+          gsap.killTweensOf(wrapper.position);
+          gsap.killTweensOf(wrapper.quaternion);
+
+          wrapper.quaternion.identity();
+          wrapper.position.set(wrapper.userData.initX * this.spacing, wrapper.userData.initY * this.spacing, wrapper.userData.initZ * this.spacing);
+          wrapper.userData.solidMesh.material.color.setHex(0x000000);
+          wrapper.userData.solidMesh.visible = true;
+
+          if (wrapper.userData.initZ === 0) {
+            const delay = (Math.abs(wrapper.userData.initX) + Math.abs(wrapper.userData.initY)) * 0.1;
+            gsap.to(wrapper.scale, { x: 1, y: 1, z: 0.01, duration: 1.5, delay: delay, ease: "back.out(1.5)" });
+          } else {
+            gsap.to(wrapper.scale, { x: 0, y: 0, z: 0, duration: 1 });
+          }
+        });
+
+        gsap.to(this.mainGroup.rotation, { x: 0, y: 0, z: 0, duration: 2 });
+        gsap.to(this.mainGroup.position, { x: 0, y: 0, duration: 1 });
+      }
+
+      triggerPhase3() {
+        gsap.to(this.animState, { globalSpeed: 0.0, duration: 2, ease: "power2.out" });
+
+        gsap.to(this.camera.position, { x: 4, y: 3, z: 6, duration: 3, ease: "power2.inOut" });
+
+        gsap.to(this.gridHelper.material, { opacity: 0.3, duration: 2 });
+        gsap.to(this.topGridHelper.material, { opacity: 0.3, duration: 2 });
+
+        this.warpGates.forEach((gate) => {
+          gsap.to(gate.material, { opacity: 0, duration: 1.5, onComplete: () => gate.visible = false });
+        });
+
+        this.cubes.forEach(wrapper => {
+          const delay = Math.random() * 0.5;
+          gsap.to(wrapper.scale, { x: 1, y: 1, z: 1, duration: 1.2, delay: delay, ease: "elastic.out(1, 0.5)" });
+        });
+
+        this.particles.forEach(p => p.visible = false);
+
+        gsap.to(this.mainGroup.position, { x: 0, y: 0, duration: 1 });
+
+        setTimeout(() => { if (!this.isTwisting && (this.currentPhase === 3 || this.currentPhase === 4)) this.twistRandomLayer(); }, 1500);
+      }
+
+      triggerPhase4() {
+        gsap.to(this.animState, { globalSpeed: 1.0, duration: 3, ease: "power2.in" });
+
+        gsap.to(this.camera.position, { x: 4, y: 3, z: 6, duration: 3, ease: "power2.inOut" });
+
+        gsap.to(this.gridHelper.material, { opacity: 0.5, duration: 2 });
+        gsap.to(this.topGridHelper.material, { opacity: 0.5, duration: 2 });
+
+        this.warpGates.forEach((gate, i) => {
+          if (!gate.visible) {
+            gate.position.z = -10 - i * 12;
+            gate.visible = true;
+            gate.material.opacity = 0;
+          }
+          gsap.to(gate.material, { opacity: 0.5, duration: 2.5, ease: "power1.inOut" });
+        });
+
+        this.cubes.forEach(wrapper => {
+          gsap.to(wrapper.scale, { x: 1, y: 1, z: 1, duration: 1.2, ease: "elastic.out(1, 0.5)" });
+        });
+
+        this.particles.forEach(p => this.burstParticle(p));
+
+        setTimeout(() => { if (!this.isTwisting && (this.currentPhase === 3 || this.currentPhase === 4)) this.twistRandomLayer(); }, 1500);
+      }
+
+      twistRandomLayer() {
+        if (this.currentPhase !== 3 && this.currentPhase !== 4) { this.isTwisting = false; return; }
+        this.isTwisting = true;
+
+        const axes = ['x', 'y', 'z'];
+        const axis = axes[Math.floor(Math.random() * 3)];
+        const targetSlice = (Math.floor(Math.random() * 3) - 1) * this.spacing;
+
+        const layerWrappers = [];
+        this.cubes.forEach(wrapper => {
+          if (Math.abs(wrapper.position[axis] - targetSlice) < 0.1) layerWrappers.push(wrapper);
+        });
+
+        this.pivot.rotation.set(0, 0, 0);
+        this.pivot.position.set(0, 0, 0);
+        layerWrappers.forEach(wrapper => this.pivot.attach(wrapper));
+
+        const direction = Math.random() > 0.5 ? 1 : -1;
+        const animProps = {
+          duration: 0.6,
+          ease: "back.inOut(1.4)",
+          onComplete: () => {
+            layerWrappers.forEach(wrapper => this.mainGroup.attach(wrapper));
+            this.cubes.forEach(wrapper => {
+              wrapper.position.x = Math.round(wrapper.position.x / this.spacing) * this.spacing;
+              wrapper.position.y = Math.round(wrapper.position.y / this.spacing) * this.spacing;
+              wrapper.position.z = Math.round(wrapper.position.z / this.spacing) * this.spacing;
+
+              const euler = new THREE.Euler().setFromQuaternion(wrapper.quaternion);
+              euler.x = Math.round(euler.x / (Math.PI / 2)) * (Math.PI / 2);
+              euler.y = Math.round(euler.y / (Math.PI / 2)) * (Math.PI / 2);
+              euler.z = Math.round(euler.z / (Math.PI / 2)) * (Math.PI / 2);
+              wrapper.quaternion.setFromEuler(euler);
+            });
+            this.isTwisting = false;
+            setTimeout(() => this.twistRandomLayer(), 100);
+          }
+        };
+        animProps[axis] = (Math.PI / 2) * direction;
+        gsap.to(this.pivot.rotation, animProps);
+      }
+
+      update() {
+        const time = this.clock.getElapsedTime();
+
+        // 1. 展开部的微波律动 (Phase 2)
+        if (this.currentPhase === 2) {
+          this.cubes.forEach(wrapper => {
+            if (wrapper.userData.initZ === 0) {
+              const offset = wrapper.userData.initX * 0.5 + wrapper.userData.initY * 0.5;
+              const floatZ = Math.sin(time * 2 + offset) * 0.15;
+              wrapper.position.z = floatZ;
+            }
+          });
+        }
+
+        // 2. 高潮一阶与二阶的共通特效
+        if (this.currentPhase === 3 || this.currentPhase === 4) {
+          this.mainGroup.rotation.x += 0.005;
+          this.mainGroup.rotation.y += 0.008;
+
+          if (Math.random() > 0.2) {
+            const randomCube = this.cubes[Math.floor(Math.random() * this.cubes.length)];
+            randomCube.userData.solidMesh.visible = Math.random() > 0.4;
+          }
+        }
+
+        // 3. 高潮二阶的独占狂暴特效
+        if (this.currentPhase === 4) {
+          this.gridGroup.position.z += this.animState.globalSpeed * 0.3;
+          if (this.gridGroup.position.z > 10) this.gridGroup.position.z = 0;
+
+          this.warpGates.forEach(gate => {
+            gate.position.z += this.animState.globalSpeed * 0.8;
+            if (gate.position.z > this.camera.position.z + 2) {
+              gate.position.z -= 60;
+            }
+          });
+
+          this.mainGroup.position.x = Math.sin(time * 30) * 0.04 * this.animState.globalSpeed;
+          this.mainGroup.position.y = Math.cos(time * 35) * 0.04 * this.animState.globalSpeed;
+
+          this.particles.forEach(p => {
+            if (p.userData.active) {
+              p.userData.life += p.userData.lifeStep * this.animState.globalSpeed;
+
+              const scale = Math.sin(Math.min(p.userData.life, 1.0) * Math.PI);
+              p.scale.setScalar(scale);
+
+              p.position.addScaledVector(p.userData.velocity, this.animState.globalSpeed * 0.4);
+              p.rotation.x += p.userData.rotSpeed.x * this.animState.globalSpeed;
+              p.rotation.y += p.userData.rotSpeed.y * this.animState.globalSpeed;
+              p.rotation.z += p.userData.rotSpeed.z * this.animState.globalSpeed;
+
+              if (p.userData.life >= 1.0 || p.position.z > this.camera.position.z) {
+                this.burstParticle(p);
+              }
+            }
+          });
+        }
+      }
+
+      render() {
+        this.renderer.render(this.scene, this.camera);
+      }
+
+      onResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      dispose() {
+        if (this.renderer) {
+          this.renderer.dispose();
+          this.renderer.domElement.remove();
+        }
       }
     }
 
@@ -899,6 +1652,31 @@
         this.chapter1Canvas.style.height = '100%';
         this.chapter1Canvas.style.zIndex = '0';
         
+        // 创建第二章 Three.js 视觉系统
+        this.chapter2 = new Chapter2Line(document.body);
+        this.chapter2Canvas = this.chapter2.renderer.domElement;
+        this.chapter2Canvas.style.position = 'fixed';
+        this.chapter2Canvas.style.top = '0';
+        this.chapter2Canvas.style.left = '0';
+        this.chapter2Canvas.style.width = '100%';
+        this.chapter2Canvas.style.height = '100%';
+        this.chapter2Canvas.style.zIndex = '0';
+        this.chapter2Canvas.style.display = 'none';
+
+        // 创建第三章 Three.js 视觉系统
+        // 创建专门的容器，保持与 face.html 的 canvas-container 一致
+        const ch3Container = document.createElement('div');
+        ch3Container.id = 'ch3-container';
+        ch3Container.style.width = '100vw';
+        ch3Container.style.height = '100vh';
+        ch3Container.style.position = 'fixed';
+        ch3Container.style.top = '0';
+        ch3Container.style.left = '0';
+        ch3Container.style.zIndex = '0';
+        ch3Container.style.display = 'none';
+        document.body.appendChild(ch3Container);
+        this.chapter3 = new Chapter3Face(ch3Container);
+        
         this.animate();
       }
       
@@ -926,26 +1704,43 @@
           // preface 阶段：全黑背景，隐藏 Three.js canvas，显示 2D canvas
           this.canvas.style.display = 'block';
           this.chapter1Canvas.style.display = 'none';
+          this.chapter2Canvas.style.display = 'none';
+          this.chapter3.renderer.domElement.parentElement.style.display = 'none';
           this.ctx.fillStyle = '#000';
           this.ctx.fillRect(0, 0, this.width, this.height);
         } else if (STATE.narrativePhase === 'ch1') {
-          // 第一章：使用 Three.js
+          // 第一章：使用 Three.js (点)
           this.canvas.style.display = 'none';
           this.chapter1Canvas.style.display = 'block';
+          this.chapter2Canvas.style.display = 'none';
+          this.chapter3.renderer.domElement.parentElement.style.display = 'none';
           this.chapter1.update();
           this.chapter1.render();
           return; // 跳过 2D 渲染和 UI 更新已在 updateLogic 中处理
         } else if (STATE.narrativePhase === 'ch2') {
-          // 第二章：绘制线
-          this.canvas.style.display = 'block';
+          // 第二章：使用 Three.js (线)
+          this.canvas.style.display = 'none';
           this.chapter1Canvas.style.display = 'none';
-          this.ctx.fillStyle = '#000';
-          this.ctx.fillRect(0, 0, this.width, this.height);
-          drawChapter2(this.ctx, cx, cy, this.width, this.height);
+          this.chapter2Canvas.style.display = 'block';
+          this.chapter3.renderer.domElement.parentElement.style.display = 'none';
+          this.chapter2.update();
+          this.chapter2.render();
+          return;
+        } else if (STATE.narrativePhase === 'ch3') {
+          // 第三章：使用 Three.js (面)
+          this.canvas.style.display = 'none';
+          this.chapter1Canvas.style.display = 'none';
+          this.chapter2Canvas.style.display = 'none';
+          this.chapter3.renderer.domElement.parentElement.style.display = 'block';
+          this.chapter3.update();
+          this.chapter3.render();
+          return;
         } else if (STATE.chapter >= 1 && STATE.chapter <= 3) {
           // 兼容旧逻辑
           this.canvas.style.display = 'block';
           this.chapter1Canvas.style.display = 'none';
+          this.chapter2Canvas.style.display = 'none';
+          this.chapter3.renderer.domElement.parentElement.style.display = 'none';
           this.ctx.fillStyle = '#000';
           this.ctx.fillRect(0, 0, this.width, this.height);
           switch (STATE.chapter) {
@@ -956,7 +1751,12 @@
               this.chapter1.render();
               return;
             case 2: drawChapter2(this.ctx, cx, cy, this.width, this.height); break;
-            case 3: drawChapter3(this.ctx, cx, cy, this.width, this.height); break;
+            case 3: 
+              this.canvas.style.display = 'none';
+              this.chapter3.renderer.domElement.parentElement.style.display = 'block';
+              this.chapter3.update();
+              this.chapter3.render();
+              return;
           }
         }
         
@@ -997,35 +1797,27 @@
         }
         
         // 第一章 Three.js 视觉系统的 ESP32 状态映射
-        // 设计原则：添加抖动阈值，确保平滑过渡，不瞬间切换
         if (STATE.narrativePhase === 'ch1' && this.chapter1) {
           const mainE = STATE.mainEnergy;
           const subE = STATE.subEnergy;
           
-          // 使用可调整的阈值
           const motionThreshold = STATE.motionThreshold;
           const developThreshold = STATE.developThreshold;
           const climaxThreshold = STATE.climaxThreshold;
           
-          // 计算有效运动量（考虑主手和副手）
           const effectiveMainEnergy = mainE > motionThreshold ? mainE : 0;
           const effectiveSubEnergy = subE > motionThreshold ? subE : 0;
           const effectiveTotal = (effectiveMainEnergy + effectiveSubEnergy) / 2;
           
-          // 确定目标阶段（使用有效能量）
           let targetStage = 0;
           
           if (hasSub && effectiveTotal >= climaxThreshold) {
-            // 高潮：双手连接 + 有效总能量 >= 阈值
             targetStage = 3;
           } else if (hasMain && effectiveMainEnergy >= developThreshold) {
-            // 发展：主手连接 + 有效主手能量 >= 阈值
             targetStage = 2;
           } else if (hasMain && effectiveMainEnergy > 0) {
-            // 原初：主手连接 + 有效能量 > 0
             targetStage = 1;
           }
-          // 否则 targetStage = 0（静止原点）
           
           this.chapter1.setTargetStage(targetStage);
           
@@ -1034,6 +1826,72 @@
           const elStage = document.getElementById('debug-stage');
           if (elEnergy) elEnergy.textContent = Math.round(effectiveMainEnergy) + '/' + Math.round(effectiveSubEnergy);
           if (elStage) elStage.textContent = targetStage;
+        }
+        
+        // 第二章 Three.js 视觉系统的 ESP32 状态映射
+        if (STATE.narrativePhase === 'ch2' && this.chapter2) {
+          const mainE = STATE.mainEnergy;
+          const subE = STATE.subEnergy;
+          
+          const motionThreshold = STATE.motionThreshold;
+          const developThreshold = STATE.developThreshold;
+          const climaxThreshold = STATE.climaxThreshold;
+          
+          const effectiveMainEnergy = mainE > motionThreshold ? mainE : 0;
+          const effectiveSubEnergy = subE > motionThreshold ? subE : 0;
+          const effectiveTotal = (effectiveMainEnergy + effectiveSubEnergy) / 2;
+          
+          let targetStage = 0;
+          
+          if (hasSub && effectiveTotal >= climaxThreshold) {
+            targetStage = 3;
+          } else if (hasMain && effectiveMainEnergy >= developThreshold) {
+            targetStage = 2;
+          } else if (hasMain && effectiveMainEnergy > 0) {
+            targetStage = 1;
+          }
+          
+          this.chapter2.setTargetStage(targetStage);
+          
+          // 更新调试显示
+          const elEnergy = document.getElementById('debug-energy');
+          const elStage = document.getElementById('debug-stage');
+          if (elEnergy) elEnergy.textContent = Math.round(effectiveMainEnergy) + '/' + Math.round(effectiveSubEnergy);
+          if (elStage) elStage.textContent = targetStage;
+        }
+        
+        // 第三章 Three.js 视觉系统的 ESP32 状态映射
+        if (STATE.narrativePhase === 'ch3' && this.chapter3) {
+          const mainE = STATE.mainEnergy;
+          const subE = STATE.subEnergy;
+          
+          const motionThreshold = STATE.motionThreshold;
+          const developThreshold = STATE.developThreshold;
+          const climaxThreshold = STATE.climaxThreshold;
+          
+          const effectiveMainEnergy = mainE > motionThreshold ? mainE : 0;
+          const effectiveSubEnergy = subE > motionThreshold ? subE : 0;
+          const effectiveTotal = (effectiveMainEnergy + effectiveSubEnergy) / 2;
+          
+          let targetPhase = 1;
+          
+          if (hasSub && effectiveTotal >= climaxThreshold) {
+            targetPhase = 4;
+          } else if (hasMain && effectiveMainEnergy >= developThreshold) {
+            targetPhase = 3;
+          } else if (hasMain && effectiveMainEnergy > motionThreshold) {
+            targetPhase = 2;
+          } else if (hasMain) {
+            targetPhase = 1;
+          }
+          
+          this.chapter3.setPhase(targetPhase);
+          
+          // 更新调试显示
+          const elEnergy = document.getElementById('debug-energy');
+          const elStage = document.getElementById('debug-stage');
+          if (elEnergy) elEnergy.textContent = Math.round(effectiveMainEnergy) + '/' + Math.round(effectiveSubEnergy);
+          if (elStage) elStage.textContent = targetPhase;
         }
       }
       
@@ -1353,3 +2211,8 @@
   </script>
 </body>
 </html>
+
+
+
+
+

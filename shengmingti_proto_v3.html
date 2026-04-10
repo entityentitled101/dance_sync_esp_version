@@ -2935,20 +2935,39 @@
       // 隐藏所有视觉（通过隐藏 canvas 元素）
       if (window.visualEngine) {
         const engine = window.visualEngine;
+        // 隐藏主画布2D canvas
+        if (engine.canvas) engine.canvas.style.display = 'none';
         // 隐藏第一章 canvas
         if (engine.chapter1Canvas) engine.chapter1Canvas.style.display = 'none';
         // 隐藏第二章 canvas
         if (engine.chapter2Canvas) engine.chapter2Canvas.style.display = 'none';
-        // 隐藏第三章容器
-        const ch3Container = document.getElementById('ch3-container');
-        if (ch3Container) ch3Container.style.display = 'none';
-        // 隐藏第四章容器
-        const ch4Container = document.getElementById('ch4-container');
-        if (ch4Container) ch4Container.style.display = 'none';
       }
       
-      // 黑屏背景
+      // 隐藏第三章容器
+      const ch3Container = document.getElementById('ch3-container');
+      if (ch3Container) ch3Container.style.display = 'none';
+      // 隐藏第四章容器
+      const ch4Container = document.getElementById('ch4-container');
+      if (ch4Container) ch4Container.style.display = 'none';
+      
+      // 黑屏背景 - 确保完全覆盖
       document.body.style.backgroundColor = '#000000';
+      // 创建一个绝对黑屏覆盖层
+      let blackOverlay = document.getElementById('force-ending-blackout');
+      if (!blackOverlay) {
+        blackOverlay = document.createElement('div');
+        blackOverlay.id = 'force-ending-blackout';
+        blackOverlay.style.position = 'fixed';
+        blackOverlay.style.top = '0';
+        blackOverlay.style.left = '0';
+        blackOverlay.style.width = '100vw';
+        blackOverlay.style.height = '100vh';
+        blackOverlay.style.backgroundColor = '#000000';
+        blackOverlay.style.zIndex = '1';
+        document.body.appendChild(blackOverlay);
+      } else {
+        blackOverlay.style.display = 'block';
+      }
       
       // 清除之前的文案计时器
       if (STATE.narrativeTimer) {

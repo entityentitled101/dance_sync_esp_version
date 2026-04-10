@@ -1188,7 +1188,8 @@
               vec4 cr = texture2D(tDiffuse, vUv + offset);
               vec4 cga = texture2D(tDiffuse, vUv);
               vec4 cb = texture2D(tDiffuse, vUv - offset);
-              vec3 finalColor = vec3(cr.r, cga.g, cb.b);
+              // 减少绿色成分，增加赋予红蓝色散对比
+              vec3 finalColor = vec3(cr.r, cga.g * 0.5, cb.b);
               finalColor += vec3(amount * 2.0);
               gl_FragColor = vec4(finalColor, cga.a);
             }

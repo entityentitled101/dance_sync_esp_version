@@ -1890,6 +1890,7 @@
       textCooldownTime: 2500,        // 文案切换冷却时间：2.5秒
       textLastShownTime: 0,          // 上次文案显示结束时间
       textIsShowing: false,          // 是否正在显示文案
+      currentTextType: null,         // 当前显示的文案类型: 'developing'|'climax'|null
       // 状态持续控制（仅第一次进入需要延迟）
       stateMinDuration: 5000,        // 第一次进入状态需要持续5秒才能切换
       statePendingTime: null,        // 开始等待进入下一状态的时间
@@ -3191,8 +3192,8 @@
       const config = CHAPTER_CONFIG[phase];
       if (!config || !config.textDeveloping || !config.textDeveloping.cn) return;
       
-      // 如果已经显示高潮文案，不显示发展文案
-      if (STATE.textIsShowing && STATE.narrativeTriggered.climax) return;
+      // 如果正在显示高潮文案，不显示发展文案（但允许高潮隐藏后再显示）
+      if (STATE.textIsShowing && STATE.currentTextType === 'climax') return;
       
       // 记录开始显示时间（用于最少5秒显示检查）
       if (!STATE.narrativeTriggered.developing) {
@@ -3200,6 +3201,7 @@
       }
       
       STATE.textIsShowing = true;
+      STATE.currentTextType = 'developing';
       
       const overlay = document.getElementById('narrative-overlay');
       const cnEl = overlay.querySelector('.narrative-cn');
@@ -3228,6 +3230,7 @@
       const overlay = document.getElementById('narrative-overlay');
       overlay.classList.remove('visible');
       STATE.textIsShowing = false;
+      STATE.currentTextType = null;
     }
     
     // 显示高潮文案（绑定视觉状态三）- 只在进入 Stage 3/Phase 4 时触发
@@ -3243,6 +3246,7 @@
       }
       
       STATE.textIsShowing = true;
+      STATE.currentTextType = 'climax';
       
       const overlay = document.getElementById('narrative-overlay');
       const cnEl = overlay.querySelector('.narrative-cn');
@@ -3271,6 +3275,7 @@
       const overlay = document.getElementById('narrative-overlay');
       overlay.classList.remove('visible');
       STATE.textIsShowing = false;
+      STATE.currentTextType = null;
     }
     
     function hideNarrativeText() {

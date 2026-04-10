@@ -1169,6 +1169,7 @@
         climax: false
       },
       narrativeTimer: null,        // 文案显示定时器
+      prefaceTimer: null,          // preface 自动进入 ch1 的定时器
       // 第一章触发阈值（可调整，能量范围0-10000）
       motionThreshold: 1500,       // 抖动阈值：低于此值视为静止
       developThreshold: 4000,      // 发展阈值：需要明显的手势才触发
@@ -2069,9 +2070,9 @@
         overlay.classList.add('visible');
         
         // 5秒后自动进入第一章
-        setTimeout(() => {
+        STATE.prefaceTimer = setTimeout(() => {
           overlay.classList.remove('visible');
-          setTimeout(() => enterChapter('ch1'), 800);
+          STATE.prefaceTimer = setTimeout(() => enterChapter('ch1'), 800);
         }, 5000);
         
       } else if (phase === 'ending') {
@@ -2109,7 +2110,8 @@
       // 更新顶部标题
       updatePhaseIndicator(config.title + ' · ' + config.subtitle);
       
-      // 更新按钮状态
+      // 更新按钮状态：清除所有 active，只保留当前章节
+      document.querySelectorAll('.chapter-btn').forEach(btn => btn.classList.remove('active'));
       const btnMap = { 'ch1': 'ch-1', 'ch2': 'ch-2', 'ch3': 'ch-3', 'ch4': 'ch-4' };
       const btnId = btnMap[chapter];
       if (btnId) document.getElementById(btnId).classList.add('active');
@@ -2197,6 +2199,13 @@
       // 手动切换章节
       document.getElementById('intro-overlay').classList.add('hidden');
       document.getElementById('narrative-overlay').classList.remove('visible');
+      
+      // 清除 preface 自动切换定时器，避免跳回 ch1
+      if (STATE.prefaceTimer) {
+        clearTimeout(STATE.prefaceTimer);
+        STATE.prefaceTimer = null;
+      }
+      
       enterChapter(chapter);
     }
     
